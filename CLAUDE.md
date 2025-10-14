@@ -363,6 +363,32 @@ k8s-hpa-manager/
 - **Foco sempre visível**: Aba em foco exibida após navegação
 - **Complementa Alt+1-9/0**: Navegação numérica direta + navegação sequencial
 
+### 🔧 Correção de Carregamento de Node Pools (Outubro 2025)
+**Problema resolvido:** Node pools não carregavam porque a aplicação procurava `clusters-config.json` em locais incorretos
+
+**Solução implementada:**
+- ✅ **Prioridade de busca corrigida** - Agora busca primeiro em `~/.k8s-hpa-manager/clusters-config.json` (onde `autodiscover` salva)
+- ✅ **Fallback inteligente** - Se não encontrar no diretório padrão, tenta:
+  1. `~/.k8s-hpa-manager/clusters-config.json` (padrão - onde autodiscover salva)
+  2. Diretório do executável (fallback 1)
+  3. Diretório de trabalho atual (fallback 2)
+- ✅ **Mensagem de erro clara** - Sugere executar `k8s-hpa-manager autodiscover` se arquivo não for encontrado
+- ✅ **Consistência com autodiscover** - Ambos usam o mesmo diretório padrão
+
+**Causa raiz:**
+- `loadClusterConfig()` em `internal/tui/message.go` buscava primeiro no diretório do executável
+- Comando `autodiscover` salva em `~/.k8s-hpa-manager/` (diretório padrão da aplicação)
+- Incompatibilidade de caminhos causava falha no carregamento dos node pools
+
+**Arquivos modificados:**
+- `internal/tui/message.go` (linhas 467-501) - Função `loadClusterConfig()` com prioridade corrigida
+- `internal/tui/views.go` (linhas 3092-3093) - Help atualizado com informação da correção
+
+**Workflow correto:**
+1. `k8s-hpa-manager autodiscover` → gera `~/.k8s-hpa-manager/clusters-config.json`
+2. Aplicação inicia → busca primeiro em `~/.k8s-hpa-manager/`
+3. Node pools carregam corretamente ✅
+
 ### 📝 Log Detalhado de Alterações (Outubro 2025)
 **Problema resolvido:** Usuário não via quais alterações estavam sendo aplicadas, apenas mensagens genéricas de sucesso/erro
 
