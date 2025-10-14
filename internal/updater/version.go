@@ -11,8 +11,8 @@ import (
 var Version = "dev"
 
 const (
-	RepoOwner = "paulohfreire"
-	RepoName  = "k8s-hpa-manager"
+	RepoOwner = "Paulo-Ribeiro-Log"
+	RepoName  = "Scale_HPA"
 )
 
 // SemanticVersion representa uma versão semântica
