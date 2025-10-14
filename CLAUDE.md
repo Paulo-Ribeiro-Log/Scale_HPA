@@ -41,6 +41,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ **Modais como overlay** - aparecem sobre o conteúdo sem esconder a aplicação
 - ✅ **Log detalhado de alterações** - todas as mudanças exibidas no StatusContainer (antes → depois)
 - ✅ **Navegação sequencial de abas** - Ctrl+←/→ para navegar entre abas com wrap-around
+- ✅ **Versionamento automático** - via git tags com verificação de updates 1x/dia
 
 ### Tech Stack
 - **Language**: Go 1.23+ (toolchain 1.24.7)
@@ -79,10 +80,12 @@ A aplicação usa **EXATAMENTE o tamanho do seu terminal** - sem forçar dimens�
 
 ### Building and Running
 ```bash
-make build                    # Build to ./build/k8s-hpa-manager
+make build                    # Build to ./build/k8s-hpa-manager (version auto-detected)
 make build-all                # Build for multiple platforms (Linux, macOS, Windows)
 make run                      # Build and run
 make run-dev                  # Run with debug logging (go run . --debug)
+make version                  # Show detected version from git tags
+make release                  # Build for all platforms (Linux, macOS amd64/arm64, Windows)
 ```
 
 ### Testing
@@ -419,6 +422,79 @@ k8s-hpa-manager/
 - `internal/tui/app.go` - Funções logHPAChanges(), logResourceChanges(), logNodePoolChanges()
 - `internal/tui/app.go` - applyHPAChanges() e applyHPAChangesAsync() com logs detalhados
 - `internal/tui/app.go` - applyNodePoolChanges() com logs detalhados
+
+### 🔄 Sistema de Versionamento Automático e Updates (Outubro 2025)
+**Funcionalidade:** Sistema completo de versionamento semântico e verificação automática de updates
+
+**Características implementadas:**
+- ✅ **Versionamento automático via Git Tags** - Versão injetada no build usando `git describe --tags`
+- ✅ **Comando version** - `k8s-hpa-manager version` mostra versão e verifica updates
+- ✅ **Verificação em background** - Checa GitHub Releases 1x por dia (não-bloqueante)
+- ✅ **Notificação no TUI** - Mensagens aparecem no StatusContainer após 3 segundos
+- ✅ **Flag configurável** - `--check-updates=false` para desabilitar verificação
+- ✅ **Versão dev** - Builds sem tag mostram "dev-<commit>" e não verificam updates
+- ✅ **Cache inteligente** - Arquivo `~/.k8s-hpa-manager/.update-check` controla frequência
+- ✅ **Timeout 5s** - Não trava se GitHub estiver offline
+
+**Estrutura:**
+```
+internal/updater/
+├── version.go    # Versionamento semântico (var Version injetada)
+├── github.go     # Cliente GitHub API (releases/latest)
+└── checker.go    # Lógica de verificação (1x/dia, cache)
+```
+
+**Workflow de Release:**
+```bash
+# 1. Criar tag de versão
+git tag v1.6.0
+git push origin v1.6.0
+
+# 2. Build automático com versão injetada
+make build
+# Output: Building k8s-hpa-manager v1.6.0...
+
+# 3. Verificar versão no binário
+./build/k8s-hpa-manager version
+# Output: k8s-hpa-manager versão 1.6.0
+
+# 4. Criar release multiplataforma
+make release
+# Gera binários para Linux, macOS (amd64/arm64), Windows
+```
+
+**Comandos:**
+```bash
+# Verificar versão e updates
+k8s-hpa-manager version
+
+# Ver versão detectada durante build
+make version
+
+# Build com versão injetada
+make build                    # Versão da tag atual
+make release                  # Multi-platform builds
+
+# Desabilitar verificação automática
+k8s-hpa-manager --check-updates=false
+```
+
+**Notificação no TUI:**
+Quando houver update disponível (após 3s do startup):
+```
+┌─ Status e Informações ────────────────────┐
+│ 🆕 Nova versão disponível: 1.5.0 → 1.6.0  │
+│ 📦 Download: https://github.com/.../v1.6.0│
+│ 💡 Execute 'k8s-hpa-manager version'       │
+└────────────────────────────────────────────┘
+```
+
+**Arquivos modificados:**
+- `internal/updater/` (NOVO) - Sistema completo de versionamento
+- `cmd/version.go` (NOVO) - Comando version
+- `cmd/root.go` - Flag --check-updates e verificação em background
+- `internal/tui/app.go` - Notificação no StatusContainer (checkForUpdatesInBackground)
+- `makefile` - LDFLAGS com injeção de versão, targets version e release
 
 ### 💾 Salvamento Manual para Rollback (Janeiro 2025)
 - **Ctrl+S sem modificações**: Cria snapshots para rollback

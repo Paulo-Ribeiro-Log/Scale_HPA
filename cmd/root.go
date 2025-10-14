@@ -9,15 +9,17 @@ import (
 	"golang.org/x/sys/unix"
 
 	"k8s-hpa-manager/internal/tui"
+	"k8s-hpa-manager/internal/updater"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 )
 
 var (
-	kubeconfig string
-	debug      bool
-	demo       bool
+	kubeconfig   string
+	debug        bool
+	demo         bool
+	checkUpdates bool
 )
 
 var rootCmd = &cobra.Command{
@@ -80,6 +82,11 @@ Controls:
 			fmt.Println("  • Ctrl+D/U: Aplicar        • ?: Ajuda completa")
 			fmt.Println("\n🎯 Aplicação pronta para uso em ambiente terminal interativo!")
 			return nil
+		}
+
+		// Verificar updates em background (não-bloqueante)
+		if checkUpdates && updater.ShouldCheckForUpdates() {
+			go checkForUpdatesAsync()
 		}
 
 		// Validar autenticação Azure AD ANTES de carregar kubeconfig
@@ -191,6 +198,25 @@ func performAzureLogin() error {
 	return nil
 }
 
+// checkForUpdatesAsync verifica updates em background
+func checkForUpdatesAsync() {
+	info, err := updater.CheckForUpdates()
+	if err != nil {
+		// Ignorar erros silenciosamente (não atrapalhar UX)
+		return
+	}
+
+	// Marcar verificação feita
+	_ = updater.MarkUpdateChecked()
+
+	if info.Available {
+		// Notificar usuário
+		fmt.Printf("\n🆕 Nova versão disponível: %s → %s\n", info.CurrentVersion, info.LatestVersion)
+		fmt.Printf("📦 Download: %s\n", info.ReleaseURL)
+		fmt.Printf("💡 Execute 'k8s-hpa-manager version' para mais detalhes\n\n")
+	}
+}
+
 func init() {
 	// Define flags
 	rootCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "",
@@ -199,6 +225,8 @@ func init() {
 		"Enable debug logging")
 	rootCmd.PersistentFlags().BoolVar(&demo, "demo", false,
 		"Run in demo mode (show implementation status)")
+	rootCmd.PersistentFlags().BoolVar(&checkUpdates, "check-updates", true,
+		"Check for updates on startup (default: true)")
 
 	// Set default kubeconfig path
 	if home, exists := os.LookupEnv("HOME"); exists && kubeconfig == "" {

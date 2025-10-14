@@ -24,6 +24,7 @@ import (
 	"k8s-hpa-manager/internal/session"
 	"k8s-hpa-manager/internal/tui/components"
 	"k8s-hpa-manager/internal/tui/layout"
+	"k8s-hpa-manager/internal/updater"
 )
 
 // App representa a aplicação principal
@@ -109,6 +110,9 @@ func NewApp(kubeconfigPath string, debug bool) *App {
 	app.debugLog("📑 TabManager inicializado com 1 aba")
 
 	// Mensagens de teste serão adicionadas após descobrir clusters (em clustersDiscoveredMsg)
+
+	// Verificar updates em background (não-bloqueante)
+	go app.checkForUpdatesInBackground()
 
 	return app
 }
@@ -4569,5 +4573,42 @@ func (a *App) checkSequenceStatusAndContinue() tea.Cmd {
 
 	a.debugLog("🎉 Execução sequencial concluída!")
 	return nil
+}
+
+// checkForUpdatesInBackground verifica updates e notifica via StatusContainer
+func (a *App) checkForUpdatesInBackground() {
+	// Aguardar 3 segundos para não interferir no startup
+	time.Sleep(3 * time.Second)
+
+	// Verificar se deve checar updates
+	if !updater.ShouldCheckForUpdates() {
+		return
+	}
+
+	// Verificar updates
+	info, err := updater.CheckForUpdates()
+	if err != nil {
+		// Ignorar erros silenciosamente
+		a.debugLog("⚠️ Erro ao verificar updates: %v", err)
+		return
+	}
+
+	// Marcar verificação feita
+	_ = updater.MarkUpdateChecked()
+
+	if info.Available {
+		// Adicionar notificação no StatusContainer
+		msg := fmt.Sprintf("Nova versão disponível: %s → %s",
+			info.CurrentVersion, info.LatestVersion)
+		a.model.StatusContainer.AddInfo("Updates", msg)
+
+		urlMsg := fmt.Sprintf("Download: %s", info.ReleaseURL)
+		a.model.StatusContainer.AddInfo("Updates", urlMsg)
+
+		tipMsg := "Execute 'k8s-hpa-manager version' para detalhes"
+		a.model.StatusContainer.AddInfo("Updates", tipMsg)
+
+		a.debugLog("🆕 Update disponível: %s → %s", info.CurrentVersion, info.LatestVersion)
+	}
 }
 
