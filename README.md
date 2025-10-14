@@ -2,9 +2,11 @@
 
 Um gerenciador interativo de terminal para Horizontal Pod Autoscalers (HPAs) do Kubernetes, construído com Go e Bubble Tea. Gerencie HPAs de múltiplos clusters de forma intuitiva e eficiente.
 
-![Build Status](https://img.shields.io/badge/build-passing-green)
-![Go Version](https://img.shields.io/badge/go-1.21+-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+[![CI](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/actions/workflows/ci.yml/badge.svg)](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/actions/workflows/ci.yml)
+[![Release](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/actions/workflows/release.yml/badge.svg)](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/actions/workflows/release.yml)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/Paulo-Ribeiro-Log/Scale_HPA)](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/releases/latest)
+[![Go Version](https://img.shields.io/badge/go-1.23+-blue)](https://go.dev/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ## 🌟 Funcionalidades
 

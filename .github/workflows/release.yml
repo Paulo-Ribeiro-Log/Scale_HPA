@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggered quando criar tag v1.x.x
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Necessário para git describe
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Build binaries for all platforms
+        run: make release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: build/release/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          body: |
+            ## 🚀 k8s-hpa-manager ${{ steps.version.outputs.VERSION }}
+
+            ### 📥 Instalação
+
+            **Linux (amd64):**
+            ```bash
+            curl -L https://github.com/Paulo-Ribeiro-Log/Scale_HPA/releases/download/v${{ steps.version.outputs.VERSION }}/k8s-hpa-manager-linux-amd64 -o k8s-hpa-manager
+            chmod +x k8s-hpa-manager
+            sudo mv k8s-hpa-manager /usr/local/bin/
+            ```
+
+            **macOS (Intel):**
+            ```bash
+            curl -L https://github.com/Paulo-Ribeiro-Log/Scale_HPA/releases/download/v${{ steps.version.outputs.VERSION }}/k8s-hpa-manager-darwin-amd64 -o k8s-hpa-manager
+            chmod +x k8s-hpa-manager
+            sudo mv k8s-hpa-manager /usr/local/bin/
+            ```
+
+            **macOS (Apple Silicon):**
+            ```bash
+            curl -L https://github.com/Paulo-Ribeiro-Log/Scale_HPA/releases/download/v${{ steps.version.outputs.VERSION }}/k8s-hpa-manager-darwin-arm64 -o k8s-hpa-manager
+            chmod +x k8s-hpa-manager
+            sudo mv k8s-hpa-manager /usr/local/bin/
+            ```
+
+            **Windows:**
+            ```powershell
+            # Download k8s-hpa-manager-windows-amd64.exe e adicione ao PATH
+            ```
+
+            ### ✨ Verificar Instalação
+            ```bash
+            k8s-hpa-manager version
+            ```
+
+            ---
+
+            🤖 Release automática via GitHub Actions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: k8s-hpa-manager-${{ steps.version.outputs.VERSION }}
+          path: build/release/*
+          retention-days: 90
