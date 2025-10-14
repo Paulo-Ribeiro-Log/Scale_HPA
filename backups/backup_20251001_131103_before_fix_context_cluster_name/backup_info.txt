@@ -1,0 +1,6 @@
+Backup criado em: 2025-10-01 13:11:03
+Descrição: before_fix_context_cluster_name
+Branch atual: N/A
+Último commit: N/A
+Usuário: paulo
+Hostname: Paulo

@@ -1,0 +1,122 @@
+[
+  {
+    "clusterName": "akspriv-abastecimento-prd",
+    "resourceGroup": "rg-abastecimento-app-prd",
+    "subscription": "PRD - ONLINE 2"
+  },
+  {
+    "clusterName": "akspriv-adanalytics-prd",
+    "resourceGroup": "rg-adanalytics-app-prd",
+    "subscription": "PRD - BACKOFFICE"
+  },
+  {
+    "clusterName": "akspriv-entregamais-prd",
+    "resourceGroup": "rg-entregamais-app-prd",
+    "subscription": "PRD - BACKOFFICE"
+  },
+  {
+    "clusterName": "akspriv-envvias-prd",
+    "resourceGroup": "rg-envvias-app-prd",
+    "subscription": "PRD - ONLINE 2"
+  },
+  {
+    "clusterName": "akspriv-faturamento-prd",
+    "resourceGroup": "rg-faturamento-app-prd",
+    "subscription": "PRD - BACKOFFICE"
+  },
+  {
+    "clusterName": "akspriv-logreversa-prd",
+    "resourceGroup": "rg-logreversa-app-prd",
+    "subscription": "PRD - BACKOFFICE"
+  },
+  {
+    "clusterName": "akspriv-oferta-prd",
+    "resourceGroup": "rg-oferta-app-prd",
+    "subscription": "PRD - ONLINE 2"
+  },
+  {
+    "clusterName": "akspriv-ofertalogistica-prd",
+    "resourceGroup": "rg-ofertalogistica-app-prd",
+    "subscription": "PRD - ONLINE 2"
+  },
+  {
+    "clusterName": "akspriv-plataforma-prd",
+    "resourceGroup": "rg-plataforma-app-prd",
+    "subscription": "PRD - BACKOFFICE"
+  },
+  {
+    "clusterName": "akspriv-tms-prd",
+    "resourceGroup": "rg-tms-app-prd",
+    "subscription": "PRD - ONLINE 2"
+  },
+  {
+    "clusterName": "akspriv-tracking-prd",
+    "resourceGroup": "rg-tracking-app-prd",
+    "subscription": "PRD - BACKOFFICE"
+  },
+  {
+    "clusterName": "akspriv-wms-prd",
+    "resourceGroup": "rg-wms-app-prd",
+    "subscription": "PRD - ONLINE 2"
+  },
+  {
+    "clusterName": "akspriv-abastecimento-hlg",
+    "resourceGroup": "rg-abastecimento-app-hlg",
+    "subscription": "DEV/HLG - ONLINE"
+  },
+  {
+    "clusterName": "akspriv-adanalytics-hlg",
+    "resourceGroup": "rg-adanalytics-app-hlg",
+    "subscription": "DEV/HLG - BACKOFFICE"
+  },
+  {
+    "clusterName": "akspriv-entregamais-hlg",
+    "resourceGroup": "rg-entregamais-app-hlg",
+    "subscription": "DEV/HLG - BACKOFFICE"
+  },
+  {
+    "clusterName": "akspriv-envvias-hlg",
+    "resourceGroup": "rg-envvias-app-hlg",
+    "subscription": "DEV/HLG - ONLINE"
+  },
+  {
+    "clusterName": "akspriv-faturamento-hlg",
+    "resourceGroup": "rg-faturamento-app-hlg",
+    "subscription": "DEV/HLG - BACKOFFICE"
+  },
+  {
+    "clusterName": "akspriv-logreversa-hlg",
+    "resourceGroup": "rg-logreversa-app-hlg",
+    "subscription": "DEV/HLG - BACKOFFICE"
+  },
+  {
+    "clusterName": "akspriv-oferta-hlg",
+    "resourceGroup": "rg-oferta-app-hlg",
+    "subscription": "DEV/HLG - ONLINE"
+  },
+  {
+    "clusterName": "akspriv-ofertalogistica-hlg",
+    "resourceGroup": "rg-ofertalogistica-app-hlg",
+    "subscription": "DEV/HLG - ONLINE"
+  },
+  {
+    "clusterName": "akspriv-plataforma-hlg",
+    "resourceGroup": "rg-plataforma-app-hlg",
+    "subscription": "DEV/HLG - BACKOFFICE"
+  },
+  {
+    "clusterName": "akspriv-tms-hlg",
+    "resourceGroup": "rg-tms-app-hlg",
+    "subscription": "DEV/HLG - ONLINE"
+  },
+  {
+    "clusterName": "akspriv-tracking-hlg",
+    "resourceGroup": "rg-tracking-app-hlg",
+    "subscription": "DEV/HLG - BACKOFFICE"
+  },
+  {
+    "clusterName": "akspriv-wms-hlg",
+    "resourceGroup": "rg-wms-app-hlg",
+    "subscription": "DEV/HLG - ONLINE"
+  }
+]
