@@ -3552,16 +3552,44 @@ func (a *App) executeAzureCommand(cmdArgs []string) error {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		a.model.StatusContainer.AddError("azure-cli", fmt.Sprintf("❌ Falha na execução: %s", err.Error()))
-		fmt.Printf("❌ Command failed with error: %s\n", err.Error())
-		// Mostrar apenas primeiras linhas do erro para não poluir
-		errorOutput := string(output)
-		lines := strings.Split(errorOutput, "\n")
-		if len(lines) > 3 {
-			errorOutput = strings.Join(lines[:3], "\n") + "\n... (output truncated)"
+		errorOutput := strings.TrimSpace(string(output))
+
+		// Extrair mensagem de erro real do Azure CLI
+		azureError := "exit status 1"
+		if errorOutput != "" {
+			// Pegar primeira linha não-vazia do erro do Azure CLI
+			lines := strings.Split(errorOutput, "\n")
+			for _, line := range lines {
+				if trimmed := strings.TrimSpace(line); trimmed != "" {
+					azureError = trimmed
+					// Limitar tamanho para não poluir
+					if len(azureError) > 150 {
+						azureError = azureError[:150] + "..."
+					}
+					break
+				}
+			}
 		}
-		fmt.Printf("📄 Error details: %s\n", errorOutput)
-		return fmt.Errorf("Azure CLI command failed: %s", err.Error())
+
+		a.model.StatusContainer.AddError("azure-cli", fmt.Sprintf("❌ Falha: %s", azureError))
+
+		// Log detalhado no terminal (apenas em debug mode ou primeiras linhas)
+		if a.debug {
+			fmt.Printf("❌ Command failed with error: %s\n", err.Error())
+			fmt.Printf("📄 Full error output:\n%s\n", errorOutput)
+		} else if errorOutput != "" {
+			// Mostrar apenas primeiras 3 linhas não-vazias no StatusContainer
+			lines := strings.Split(errorOutput, "\n")
+			count := 0
+			for _, line := range lines {
+				if trimmed := strings.TrimSpace(line); trimmed != "" && count < 3 {
+					a.model.StatusContainer.AddError("azure-error", trimmed)
+					count++
+				}
+			}
+		}
+
+		return fmt.Errorf("Azure CLI: %s", azureError)
 	}
 
 	a.model.StatusContainer.AddSuccess("azure-cli", fmt.Sprintf("✅ %s executado com sucesso", operation))
