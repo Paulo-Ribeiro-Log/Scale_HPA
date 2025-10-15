@@ -423,10 +423,7 @@ func configurateSubscriptionWithStatus(clusterConfig *models.ClusterConfig, stat
 		}
 
 		// 4. Normalizar nome do cluster para Azure CLI (remover -admin se existir)
-		clusterNameForAzure := clusterConfig.ClusterName
-		if strings.HasSuffix(clusterNameForAzure, "-admin") {
-			clusterNameForAzure = strings.TrimSuffix(clusterNameForAzure, "-admin")
-		}
+		clusterNameForAzure := strings.TrimSuffix(clusterConfig.ClusterName, "-admin")
 
 		// 5. Listar node pools do cluster via Azure CLI usando a função correta com StatusPanel
 		nodePools, err := loadNodePoolsFromAzureWithRetryAndStatus(clusterNameForAzure, clusterConfig.ResourceGroup, clusterConfig.Subscription, true, statusPanel)
@@ -668,10 +665,7 @@ func extractResourceGroupFromCluster(clusterName string) (string, error) {
 // findClusterInConfig busca o cluster no arquivo clusters-config.json
 func findClusterInConfig(clusterName string) (*models.ClusterConfig, error) {
 	// Normalizar nome do cluster (remover -admin se existir para busca)
-	searchName := clusterName
-	if strings.HasSuffix(searchName, "-admin") {
-		searchName = strings.TrimSuffix(searchName, "-admin")
-	}
+	searchName := strings.TrimSuffix(clusterName, "-admin")
 
 	// Carregar configurações dos clusters
 	configs, err := loadClusterConfig()

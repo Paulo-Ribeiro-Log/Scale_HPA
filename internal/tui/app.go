@@ -3197,10 +3197,7 @@ func (a *App) loadNodePoolSessionState(session *models.Session) tea.Msg {
 	a.debugLog("🔄 Carregando node pools do cluster %s...\n", targetCluster)
 
 	// Normalizar nome do cluster para Azure CLI (remover -admin se existir)
-	clusterNameForAzure := targetCluster
-	if strings.HasSuffix(clusterNameForAzure, "-admin") {
-		clusterNameForAzure = strings.TrimSuffix(clusterNameForAzure, "-admin")
-	}
+	clusterNameForAzure := strings.TrimSuffix(targetCluster, "-admin")
 
 	// Carregar node pools via Azure CLI
 	a.debugLog("📋 Carregando node pools: cluster=%s, resourceGroup=%s, subscription=%s\n",
@@ -3452,10 +3449,7 @@ func (a *App) updateNodePoolViaAzureCLI(pool models.NodePool) error {
 	a.updateNodePoolProgress(pool.Name, models.RolloutStatusRunning, 15, "Validando configurações...", "")
 
 	// Normalizar nome do cluster para Azure CLI (remover -admin se existir)
-	clusterNameForAzure := pool.ClusterName
-	if strings.HasSuffix(clusterNameForAzure, "-admin") {
-		clusterNameForAzure = strings.TrimSuffix(clusterNameForAzure, "-admin")
-	}
+	clusterNameForAzure := strings.TrimSuffix(pool.ClusterName, "-admin")
 
 	// Etapa 2: Preparando comandos (15% -> 25%)
 	a.updateNodePoolProgress(pool.Name, models.RolloutStatusRunning, 25, "Preparando comandos Azure CLI...", "")
@@ -3965,7 +3959,7 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		} else {
 			// Clique fora do painel - já foi desfocado pelo HandleMouseClick
 			if a.debug {
-				a.debugLog(fmt.Sprintf("Status panel unfocused: click outside"))
+				a.debugLog("Status panel unfocused: click outside")
 			}
 		}
 		return a, nil
@@ -4365,7 +4359,7 @@ func (a *App) loadCronJobsFromKubernetes(client k8sClientSet.Interface, clusterN
 			}
 
 			// Obter informações do job template
-			if cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers != nil && len(cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers) > 0 {
+			if len(cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers) > 0 {
 				container := cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers[0]
 
 				// Extrair descrição funcional dos comandos/argumentos
