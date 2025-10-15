@@ -4,6 +4,17 @@
 
 Uma ferramenta TUI (Terminal User Interface) poderosa para gerenciar Horizontal Pod Autoscalers e Node Pools do Azure AKS, construída com Go e Bubble Tea.
 
+<div align="center">
+
+### 🎯 Desenvolvido para SRE Logística
+**Criado para facilitar operações de scaling de ambientes durante stress tests**
+
+Permite gerenciar HPAs e Node Pools de forma interativa e segura, com sessões reutilizáveis, execução sequencial de node pools e validação de conectividade integrada.
+
+</div>
+
+---
+
 [![CI](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/actions/workflows/ci.yml/badge.svg)](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/actions/workflows/ci.yml)
 [![Release](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/actions/workflows/release.yml/badge.svg)](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/actions/workflows/release.yml)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Paulo-Ribeiro-Log/Scale_HPA)](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/releases/latest)
