@@ -1216,6 +1216,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return a, nil
+
+	// Log Viewer Messages
+	case logLoadedMsg, logClearedMsg, logCopiedMsg:
+		return a.handleLogViewerMessages(msg)
 	}
 
 	return a, nil
@@ -1280,6 +1284,8 @@ func (a *App) View() string {
 		content = a.renderCronJobEditing()
 	case models.StateAddingCluster:
 		content = a.renderAddCluster()
+	case models.StateLogViewer:
+		content = a.renderLogViewer()
 	case models.StateHelp:
 		content = a.renderHelp()
 	default:
@@ -1426,6 +1432,18 @@ func (a *App) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case "f3":
+		// Visualizar logs da aplicação
+		if a.model.State != models.StateLogViewer {
+			a.model.PreviousState = a.model.State
+			a.model.State = models.StateLogViewer
+			a.model.LogViewerScrollPos = 0
+			a.model.LogViewerLoading = true
+			a.model.LogViewerMessage = "Carregando logs..."
+			return a, a.loadLogs()
+		}
+		return a, nil
+
 	// ==================== TAB MANAGEMENT ====================
 	case "ctrl+t":
 		// Nova aba
@@ -1529,6 +1547,8 @@ func (a *App) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a.handleCronJobEditingKeys(msg)
 	case models.StateAddingCluster:
 		return a.handleAddClusterKeys(msg)
+	case models.StateLogViewer:
+		return a.handleLogViewerKeys(msg)
 	case models.StateHelp:
 		return a.handleHelpKeys(msg)
 	}
@@ -1616,6 +1636,12 @@ func (a *App) handleEscape() (tea.Model, tea.Cmd) {
 		a.model.AddingCluster = false
 		a.model.AddClusterFormFields = make(map[string]string)
 		a.model.AddClusterActiveField = ""
+	case models.StateLogViewer:
+		// Voltar do log viewer para o estado anterior
+		targetState = a.model.PreviousState
+		a.model.LogViewerLogs = nil
+		a.model.LogViewerScrollPos = 0
+		a.model.LogViewerMessage = ""
 	default:
 		// Estado não tem transição definida
 		return a, nil
@@ -2436,12 +2462,12 @@ func (a *App) startAsyncNodePoolOperation(pool models.NodePool) {
 		}
 	}
 
-	// Usar StatusPanel para gerenciar progresso
-	// statusPanel direct access
-	// progressID := fmt.Sprintf("nodepool_%s", pool.Name) // Não utilizada temporariamente
-	// TODO: Implementar progress bar para node pools no StatusContainer
-	// a.model.StatusContainer.AddProgressBar(progressID, fmt.Sprintf("%s %s", pool.Name, operation), 100)
-	// a.model.StatusContainer.UpdateProgress(progressID, 5, "running")
+	// Usar StatusPanel para gerenciar progresso com progress bar
+	progressID := fmt.Sprintf("nodepool_%s", pool.Name)
+
+	// Adicionar progress bar inicial
+	a.model.StatusContainer.AddProgressBar(progressID, fmt.Sprintf("%s %s", pool.Name, operation), 100)
+	a.model.StatusContainer.UpdateProgress(progressID, 5, "running")
 
 	// Log básico da operação
 	a.model.StatusContainer.AddInfo("nodepool", fmt.Sprintf("🔄 %s: %s", pool.Name, operation))
@@ -2449,23 +2475,27 @@ func (a *App) startAsyncNodePoolOperation(pool models.NodePool) {
 
 // updateNodePoolProgress - Atualiza o progresso de uma operação de node pool usando StatusPanel
 func (a *App) updateNodePoolProgress(poolName string, status models.RolloutStatus, progress int, message, errorMsg string) {
-	// statusPanel direct access
-	// progressID := fmt.Sprintf("nodepool_%s", poolName) // Não utilizada temporariamente
+	progressID := fmt.Sprintf("nodepool_%s", poolName)
 
-	statusText := "running"
-	if status == models.RolloutStatusCompleted {
-		statusText = "completed"
-	} else if status == models.RolloutStatusFailed {
-		statusText = "failed"
+	// Converter status para texto
+	statusText := message
+	if errorMsg != "" {
+		statusText = fmt.Sprintf("%s - Erro: %s", message, errorMsg)
 	}
 
-	// TODO: Implementar progress update para node pools no StatusContainer
-	// a.model.StatusContainer.UpdateProgress(progressID, progress, statusText)
-	a.model.StatusContainer.AddInfo("nodepool", fmt.Sprintf("📊 %s: %d%% - %s", poolName, progress, statusText))
+	// Atualizar progress bar no StatusContainer
+	a.model.StatusContainer.UpdateProgress(progressID, progress, statusText)
 
-	// Log de erro se houver
-	if errorMsg != "" {
-		a.model.StatusContainer.AddError("nodepool", fmt.Sprintf("%s: %s", poolName, errorMsg))
+	// Se completou ou falhou, marcar como completo (será removido após 3 segundos)
+	if progress >= 100 || status == models.RolloutStatusCompleted || status == models.RolloutStatusFailed {
+		a.model.StatusContainer.CompleteProgress(progressID)
+
+		// Log final
+		if status == models.RolloutStatusCompleted {
+			a.model.StatusContainer.AddSuccess("nodepool", fmt.Sprintf("✅ %s: Operação concluída", poolName))
+		} else if status == models.RolloutStatusFailed {
+			a.model.StatusContainer.AddError("nodepool", fmt.Sprintf("❌ %s: %s", poolName, errorMsg))
+		}
 	}
 }
 
@@ -2496,14 +2526,14 @@ func (a *App) applyNodePoolChanges(nodePools []models.NodePool) tea.Cmd {
 			err := a.updateNodePoolViaAzureCLI(pool)
 			if err != nil {
 				// Atualizar progress para falha
-// DISABLED: 				a.updateNodePoolProgress(pool.Name, models.RolloutStatusFailed, 100, "Falha na aplicação", err.Error())
+a.updateNodePoolProgress(pool.Name, models.RolloutStatusFailed, 100, "Falha na aplicação", err.Error())
 				a.model.StatusContainer.AddError("apply-nodepool", fmt.Sprintf("❌ Erro ao aplicar Node Pool %s: %v", pool.Name, err))
 				lastError = err
 				continue
 			}
 
 			// Node pool aplicado com sucesso
-// DISABLED: 			a.updateNodePoolProgress(pool.Name, models.RolloutStatusCompleted, 100, "Operação concluída", "")
+a.updateNodePoolProgress(pool.Name, models.RolloutStatusCompleted, 100, "Operação concluída", "")
 			a.model.StatusContainer.AddSuccess("apply-nodepool", fmt.Sprintf("✅ Node Pool aplicado: %s", pool.Name))
 
 			// Incrementar contador de aplicações
@@ -3419,7 +3449,7 @@ func (a *App) updateNodePoolViaAzureCLI(pool models.NodePool) error {
 	}
 
 	// Etapa 1: Validação inicial (5% -> 15%)
-// DISABLED: 	a.updateNodePoolProgress(pool.Name, models.RolloutStatusRunning, 15, "Validando configurações...", "")
+	a.updateNodePoolProgress(pool.Name, models.RolloutStatusRunning, 15, "Validando configurações...", "")
 
 	// Normalizar nome do cluster para Azure CLI (remover -admin se existir)
 	clusterNameForAzure := pool.ClusterName
@@ -3428,7 +3458,7 @@ func (a *App) updateNodePoolViaAzureCLI(pool models.NodePool) error {
 	}
 
 	// Etapa 2: Preparando comandos (15% -> 25%)
-// DISABLED: 	a.updateNodePoolProgress(pool.Name, models.RolloutStatusRunning, 25, "Preparando comandos Azure CLI...", "")
+	a.updateNodePoolProgress(pool.Name, models.RolloutStatusRunning, 25, "Preparando comandos Azure CLI...", "")
 
 	// Construir comandos Azure CLI baseados nas mudanças
 	// IMPORTANTE: Ordem correta para evitar conflitos:
@@ -3573,7 +3603,7 @@ func (a *App) updateNodePoolViaAzureCLI(pool models.NodePool) error {
 	}
 
 	// Progresso final antes de completar
-// DISABLED: 	a.updateNodePoolProgress(pool.Name, models.RolloutStatusRunning, 95, "Finalizando operação...", "")
+	a.updateNodePoolProgress(pool.Name, models.RolloutStatusRunning, 95, "Finalizando operação...", "")
 	return nil
 }
 
@@ -3592,7 +3622,7 @@ func (a *App) executeAzureCommand(cmdArgs []string) error {
 
 	// Log comando completo para debug (apenas em debug mode)
 	if a.debug {
-		fmt.Printf("🚀 Running command: %s %s\n", cmdArgs[0], strings.Join(cmdArgs[1:], " "))
+		a.debugLog("🚀 Running command: %s %s", cmdArgs[0], strings.Join(cmdArgs[1:], " "))
 	}
 
 	// Separar stdout e stderr para tratar warnings adequadamente
@@ -3648,7 +3678,7 @@ func (a *App) executeAzureCommand(cmdArgs []string) error {
 		if isOnlyWarnings(stderrStr) {
 			// Log warnings em debug mode, mas não tratar como erro
 			if a.debug && stderrStr != "" {
-				fmt.Printf("⚠️ Warnings ignorados:\n%s\n", stderrStr)
+				a.debugLog("⚠️ Warnings ignorados:\n%s", stderrStr)
 			}
 			// Continuar normalmente - comando foi bem-sucedido
 			a.model.StatusContainer.AddSuccess("azure-cli", fmt.Sprintf("✅ %s executado com sucesso", operation))
@@ -3687,9 +3717,9 @@ func (a *App) executeAzureCommand(cmdArgs []string) error {
 
 		// Log detalhado no terminal (apenas em debug mode)
 		if a.debug {
-			fmt.Printf("❌ Command failed with error: %s\n", err.Error())
-			fmt.Printf("📄 Stderr output:\n%s\n", stderrStr)
-			fmt.Printf("📄 Stdout output:\n%s\n", stdoutStr)
+			a.debugLog("❌ Command failed with error: %s", err.Error())
+			a.debugLog("📄 Stderr output:\n%s", stderrStr)
+			a.debugLog("📄 Stdout output:\n%s", stdoutStr)
 		} else if stderrStr != "" {
 			// Mostrar apenas primeiras 3 linhas de ERRO REAL no StatusContainer
 			lines := strings.Split(stderrStr, "\n")
@@ -3717,7 +3747,7 @@ func (a *App) executeAzureCommand(cmdArgs []string) error {
 
 	// Sucesso - verificar se há warnings para logar em debug
 	if a.debug && stderrStr != "" {
-		fmt.Printf("⚠️ Warnings (ignorados):\n%s\n", stderrStr)
+		a.debugLog("⚠️ Warnings (ignorados):\n%s", stderrStr)
 	}
 
 	a.model.StatusContainer.AddSuccess("azure-cli", fmt.Sprintf("✅ %s executado com sucesso", operation))
@@ -3736,34 +3766,34 @@ func (a *App) processAzureOutput(output string) {
 		if err := json.Unmarshal([]byte(output), &jsonData); err == nil {
 			// Extrair apenas campos relevantes
 			if name, ok := jsonData["name"].(string); ok {
-				fmt.Printf("   📋 Nome: %s\n", name)
+				a.model.StatusContainer.AddInfo("azure-output", fmt.Sprintf("📋 Nome: %s", name))
 			}
 			if count, ok := jsonData["count"].(float64); ok {
-				fmt.Printf("   🔢 Node Count: %.0f\n", count)
+				a.model.StatusContainer.AddInfo("azure-output", fmt.Sprintf("🔢 Node Count: %.0f", count))
 			}
 			if minCount, ok := jsonData["minCount"].(float64); ok {
-				fmt.Printf("   📉 Min Count: %.0f\n", minCount)
+				a.model.StatusContainer.AddInfo("azure-output", fmt.Sprintf("📉 Min Count: %.0f", minCount))
 			}
 			if maxCount, ok := jsonData["maxCount"].(float64); ok {
-				fmt.Printf("   📈 Max Count: %.0f\n", maxCount)
+				a.model.StatusContainer.AddInfo("azure-output", fmt.Sprintf("📈 Max Count: %.0f", maxCount))
 			}
 			if status, ok := jsonData["provisioningState"].(string); ok && status != "" {
-				fmt.Printf("   🏷️  Status: %s\n", status)
+				a.model.StatusContainer.AddInfo("azure-output", fmt.Sprintf("🏷️  Status: %s", status))
 			}
 		} else {
 			// Se não conseguir parsear JSON, mostrar apenas se não for muito grande
 			if len(output) < 200 {
-				fmt.Printf("   📄 Output: %s\n", strings.TrimSpace(output))
+				a.model.StatusContainer.AddInfo("azure-output", fmt.Sprintf("📄 Output: %s", strings.TrimSpace(output)))
 			} else {
-				fmt.Printf("   📄 Output: ✅ Command executed successfully (output truncated)\n")
+				a.model.StatusContainer.AddInfo("azure-output", "📄 Output: ✅ Command executed successfully (output truncated)")
 			}
 		}
 	} else if strings.TrimSpace(output) != "" {
 		// Para output não-JSON, mostrar apenas se for pequeno
 		if len(output) < 200 {
-			fmt.Printf("   📄 Output: %s\n", strings.TrimSpace(output))
+			a.model.StatusContainer.AddInfo("azure-output", fmt.Sprintf("📄 Output: %s", strings.TrimSpace(output)))
 		} else {
-			fmt.Printf("   📄 Output: ✅ Command executed successfully\n")
+			a.model.StatusContainer.AddInfo("azure-output", "📄 Output: ✅ Command executed successfully")
 		}
 	}
 }
@@ -3793,7 +3823,7 @@ func (a *App) applyMixedSession() tea.Cmd {
 
 		// Aplicar mudanças de HPAs
 		if len(a.model.CurrentSession.Changes) > 0 {
-			fmt.Printf("🔄 Aplicando mudanças em %d HPA(s)...\n", len(a.model.CurrentSession.Changes))
+			a.model.StatusContainer.AddInfo("apply-session", fmt.Sprintf("🔄 Aplicando mudanças em %d HPA(s)...", len(a.model.CurrentSession.Changes)))
 			// Aqui deveria chamar a função de aplicar HPAs
 			// Por simplicidade, simulando sucesso
 			successCount += len(a.model.CurrentSession.Changes)
@@ -3801,7 +3831,7 @@ func (a *App) applyMixedSession() tea.Cmd {
 
 		// Aplicar mudanças de Node Pools
 		if len(a.model.CurrentSession.NodePoolChanges) > 0 {
-			fmt.Printf("🔄 Aplicando mudanças em %d Node Pool(s)...\n", len(a.model.CurrentSession.NodePoolChanges))
+			a.model.StatusContainer.AddInfo("apply-session", fmt.Sprintf("🔄 Aplicando mudanças em %d Node Pool(s)...", len(a.model.CurrentSession.NodePoolChanges)))
 			// Aqui deveria chamar a função de aplicar Node Pools
 			// Por simplicidade, simulando sucesso
 			successCount += len(a.model.CurrentSession.NodePoolChanges)

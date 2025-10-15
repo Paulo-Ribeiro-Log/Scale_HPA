@@ -316,8 +316,8 @@ func (a *App) initAzureAuth() tea.Cmd {
 // performAzureAuth realiza a autenticação via Azure CLI
 func (a *App) performAzureAuth() tea.Cmd {
 	return func() tea.Msg {
-		fmt.Printf("🔐 Starting Azure CLI authentication...\n")
-		fmt.Printf("📱 Your browser will open for Azure login\n")
+		a.model.StatusContainer.AddInfo("azure-auth", "🔐 Starting Azure CLI authentication...")
+		a.model.StatusContainer.AddInfo("azure-auth", "📱 Your browser will open for Azure login")
 		
 		// Executar az login
 		cmd := exec.Command("az", "login")
@@ -338,7 +338,7 @@ func (a *App) performAzureAuth() tea.Cmd {
 			}
 		}
 
-		fmt.Printf("✅ Azure CLI authentication successful\n")
+		a.model.StatusContainer.AddSuccess("azure-auth", "✅ Azure CLI authentication successful")
 		
 		return azureAuthResultMsg{
 			success: true,
