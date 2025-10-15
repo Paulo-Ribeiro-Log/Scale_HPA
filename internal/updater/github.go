@@ -41,6 +41,10 @@ func GetLatestRelease(owner, repo string) (*GitHubRelease, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		// Se 404, repositório não existe ou não há releases - retornar nil silenciosamente
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("repositório não encontrado ou sem releases publicadas")
+		}
 		return nil, fmt.Errorf("GitHub API retornou status %d", resp.StatusCode)
 	}
 

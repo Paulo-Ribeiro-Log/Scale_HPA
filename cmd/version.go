@@ -27,7 +27,12 @@ var versionCmd = &cobra.Command{
 		info, err := updater.CheckForUpdates()
 		if err != nil {
 			// Erro ao verificar - não falhar, apenas informar
-			fmt.Printf("⚠️  Não foi possível verificar updates: %v\n", err)
+			if strings.Contains(err.Error(), "repositório não encontrado") {
+				fmt.Println("ℹ️  Sistema de verificação de updates desabilitado")
+				fmt.Println("   (repositório GitHub ainda não configurado)")
+			} else {
+				fmt.Printf("⚠️  Não foi possível verificar updates: %v\n", err)
+			}
 			return nil
 		}
 
