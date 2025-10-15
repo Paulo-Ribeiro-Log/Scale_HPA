@@ -1,374 +1,751 @@
-# 🎯 Kubernetes HPA Manager
+# 🎯 k8s-hpa-manager
 
-Um gerenciador interativo de terminal para Horizontal Pod Autoscalers (HPAs) do Kubernetes, construído com Go e Bubble Tea. Gerencie HPAs de múltiplos clusters de forma intuitiva e eficiente.
+> **Gerenciador terminal interativo para Kubernetes HPAs e Azure AKS Node Pools**
+
+Uma ferramenta TUI (Terminal User Interface) poderosa para gerenciar Horizontal Pod Autoscalers e Node Pools do Azure AKS, construída com Go e Bubble Tea.
 
 [![CI](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/actions/workflows/ci.yml/badge.svg)](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/actions/workflows/ci.yml)
 [![Release](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/actions/workflows/release.yml/badge.svg)](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/actions/workflows/release.yml)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Paulo-Ribeiro-Log/Scale_HPA)](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/releases/latest)
-[![Go Version](https://img.shields.io/badge/go-1.23+-blue)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+---
+
+## 📖 Índice
+
+- [Funcionalidades](#-funcionalidades)
+- [Instalação](#-instalação)
+- [Quick Start](#-quick-start)
+- [Comandos CLI](#-comandos-cli)
+- [Controles de Teclado](#%EF%B8%8F-controles-de-teclado)
+- [Sistema de Sessões](#-sistema-de-sessões)
+- [Node Pools Azure AKS](#-node-pools-azure-aks)
+- [Features Avançadas](#-features-avançadas)
+- [Desenvolvimento](#%EF%B8%8F-desenvolvimento)
+- [Troubleshooting](#-troubleshooting)
+
+---
 
 ## 🌟 Funcionalidades
 
-### 🚀 **Core Features**
-- **🔍 Descoberta Automática**: Descobre clusters `akspriv-*` do kubeconfig
-- **🎨 Interface Moderna**: TUI responsiva com navegação por teclado
-- **📁 Seleção Múltipla**: Namespaces e HPAs com painéis visuais
-- **✏️ Edição Avançada**: Min/max replicas, CPU/memory targets, rollout toggle
-- **💾 Sistema de Sessões**: Salve e restaure estados para revisão
-- **🔄 Operações Flexíveis**: Aplicação individual (Ctrl+D) ou em lote (Ctrl+U)
+### 🎯 Gerenciamento Kubernetes HPA
 
-### 🎛️ **Interface Features**
-- **❓ Sistema de Ajuda**: Help contextual com scroll navegável (tecla `?`)
-- **🌡️ Status em Tempo Real**: Conectividade de cluster e contagem de HPAs
-- **🔀 Navegação Intuitiva**: Tab entre painéis, ESC para voltar, vi-keys (hjkl)
-- **🚨 Recuperação de Erros**: ESC volta de erros sem perder contexto
-- **🎯 Indicadores Visuais**: Status modificado (✨), rollout (✅/❌), conectividade
+| Feature | Descrição |
+|---------|-----------|
+| **Auto-descoberta** | Descobre clusters `akspriv-*` automaticamente do kubeconfig |
+| **Multi-namespace** | Selecione múltiplos namespaces simultaneamente |
+| **Edição em Lote** | Modifique múltiplos HPAs de uma vez (Ctrl+U) |
+| **Rollout Integration** | Trigger automático de rollouts após mudanças |
+| **Resource Management** | Edite CPU/Memory requests/limits dos Deployments |
+| **Sistema de Sessões** | Salve configurações para revisão e aplicação posterior |
 
-### 🛠️ **Operational Features**
-- **🔧 Rollout Integration**: Toggle por HPA com execução automática
-- **🌐 Multi-cluster**: Gerenciamento de clientes Kubernetes por cluster
-- **🔒 Filtros Inteligentes**: Namespaces de sistema opcionais (toggle `S`)
-- **⚡ Performance**: Carregamento assíncrono e contagem em background
+### ☁️ Gerenciamento Azure AKS
+
+| Feature | Descrição |
+|---------|-----------|
+| **Node Pools** | Gerencie count, min/max nodes, autoscaling (Ctrl+N) |
+| **Execução Sequencial** | Execute 2 node pools em sequência (F12) para stress tests |
+| **Autenticação Transparente** | Azure AD + CLI integrados com fallback automático |
+| **Async Operations** | Interface não-bloqueante durante aplicações |
+| **Auto-discovery** | `k8s-hpa-manager autodiscover` para 26+ clusters |
+
+### 🎨 Interface & UX
+
+| Feature | Descrição |
+|---------|-----------|
+| **Interface Responsiva** | Adapta-se ao tamanho do terminal (80x24 mínimo) |
+| **Multi-tab** | Até 10 tabs simultâneas (Alt+1-9, Alt+0) |
+| **Progress Bars** | Estilo Rich Python com cores dinâmicas |
+| **Status Container** | Feedback em tempo real de operações |
+| **Modais de Confirmação** | Previne aplicações acidentais (Ctrl+D/U) |
+| **Help Contextual** | Tecla `?` com scroll navegável |
+
+### 🚀 Features Avançadas (2025)
+
+- ✅ **CronJob Management** (F9) - Enable/disable com status visual
+- ✅ **Prometheus Stack** (F8) - Gerenciamento de recursos do stack Prometheus
+- ✅ **VPN Validation** - Verifica conectividade K8s antes de operações
+- ✅ **Versionamento Automático** - Sistema de updates via GitHub Releases
+- ✅ **Sessões Mistas** - Combine HPAs + Node Pools (Ctrl+M)
+- ✅ **Navegação Sequencial** - Ctrl+←/→ entre tabs com wrap-around
+- ✅ **Log Detalhado** - Todas alterações mostradas (antes → depois)
+
+---
 
 ## 🚀 Instalação
 
-### 📦 **Instalação Automática (Recomendada)**
+### Pré-requisitos
+
+- **Go 1.23+** (para compilação)
+- **kubectl** configurado com acesso aos clusters
+- **Azure CLI** (opcional - apenas para node pools)
+- **Terminal** com suporte a cores (recomendado: 80x24 ou maior)
+
+### Instalação Rápida
 
 ```bash
-# Clonar repositório
-git clone <repository-url>
-cd k8s-hpa-manager
+# Clone o repositório
+git clone https://github.com/Paulo-Ribeiro-Log/Scale_HPA.git
+cd Scale_HPA
 
-# Executar instalador automático
+# Instale automaticamente
 ./install.sh
+
+# Verifique a instalação
+k8s-hpa-manager version
 ```
 
-🎉 **Pronto!** Agora use `k8s-hpa-manager` de qualquer lugar do terminal.
-
-### 🛠️ **Instalação Manual**
+### Instalação Manual
 
 ```bash
-# Compilar
+# Compile
 make build
 
-# Instalar globalmente
+# Instale globalmente
 sudo cp build/k8s-hpa-manager /usr/local/bin/
 sudo chmod +x /usr/local/bin/k8s-hpa-manager
+
+# Verifique
+k8s-hpa-manager --help
 ```
 
-### 🗑️ **Desinstalação**
+### Desinstalação
 
 ```bash
-# Usando script automático
+# Automática (com opção de remover dados de sessão)
 ./uninstall.sh
 
-# Ou manual
+# Manual
 sudo rm /usr/local/bin/k8s-hpa-manager
 ```
 
-### ✅ **Pré-requisitos**
+---
 
-- **Go 1.21+** (para compilação)
-- **Clusters Kubernetes** com contextos `akspriv-*` no kubeconfig
-- **Permissões RBAC**: Listar namespaces, HPAs e executar rollouts
+## 🎮 Quick Start
 
-## 📋 Uso
-
-### 🎮 **Início Rápido**
+### 1️⃣ Primeiro Uso - Auto-descoberta de Clusters
 
 ```bash
-# Executar após instalação global
-k8s-hpa-manager
+# Auto-descobre clusters do kubeconfig e configura node pools
+k8s-hpa-manager autodiscover
 
-# Opções disponíveis
-k8s-hpa-manager --help
-k8s-hpa-manager --debug                    # Modo debug
-k8s-hpa-manager --kubeconfig /path/config  # Kubeconfig customizado
+# Inicia a aplicação
+k8s-hpa-manager
 ```
 
-### 🎯 **Fluxo de Trabalho**
+### 2️⃣ Workflow Básico - Scaling HPAs
 
-1. **🏗️ Seleção de Cluster** → Escolha um cluster `akspriv-*`
-2. **📁 Seleção de Namespaces** → Selecione múltiplos namespaces
-3. **🎯 Gerenciamento de HPAs** → Selecione e edite HPAs
-4. **✏️ Edição Individual** → Configure cada HPA
-5. **🚀 Aplicação** → Individual (Ctrl+D) ou lote (Ctrl+U)
+```bash
+k8s-hpa-manager
 
-### ⌨️ **Controles de Teclado**
+# 1. Selecione um cluster → ENTER
+# 2. Selecione namespaces → SPACE (múltiplos)
+# 3. ENTER → Carrega HPAs
+# 4. Selecione HPAs → SPACE
+# 5. ENTER → Edite valores
+# 6. Ctrl+S → Salve sessão
+# 7. Ctrl+D → Aplica HPA individual OU Ctrl+U → Aplica todos
+```
 
-#### 🌐 **Navegação Global**
-- **`?`** → Ajuda contextual com scroll
-- **`F4`** → Sair da aplicação
-- **`ESC`** → Voltar/cancelar (inclusive de erros!)
-- **`Ctrl+C`** → Forçar saída
+### 3️⃣ Workflow Avançado - Node Pools
 
-#### 🏗️ **Clusters & Sessões**
-- **`↑↓` / `k j`** → Navegar listas
-- **`ENTER`** → Selecionar cluster
-- **`Ctrl+L`** → Carregar sessão salva
+```bash
+k8s-hpa-manager
 
-#### 📁 **Namespaces**
-- **`SPACE`** → Selecionar/deselecionar namespace
-- **`TAB`** → Alternar entre painéis
-- **`S`** → Toggle namespaces de sistema
-- **`ENTER`** → Continuar para HPAs
+# 1. Ctrl+N → Abre gerenciamento de node pools
+# 2. Selecione pools → SPACE
+# 3. ENTER → Edite (count, min/max, autoscaling)
+# 4. F12 → Marca para execução sequencial (*1, *2)
+# 5. Ctrl+D/U → Aplica (com confirmação)
+# ✅ *1 executa → *2 inicia automaticamente
+```
 
-#### 🎯 **HPAs**
-- **`SPACE`** → Selecionar/deselecionar HPA
-- **`ENTER`** → Editar HPA selecionado
-- **`Ctrl+D`** → **Aplicar HPA individual**
-- **`Ctrl+U`** → **Aplicar todos os HPAs modificados**
-- **`Ctrl+S`** → Salvar sessão
+---
 
-#### ✏️ **Edição de HPAs**
-- **`↑↓` / `k j`** → Navegar campos
-- **`TAB`** → Próximo campo
-- **`ENTER`** → Editar campo (números)
-- **`SPACE`** → Toggle rollout (Sim/Não)
-- **`0-9`** → Entrada numérica
-- **`Backspace`** → Apagar dígito
-- **`Ctrl+S`** → Salvar e voltar
+## 📟 Comandos CLI
+
+### Comandos Principais
+
+```bash
+# Iniciar interface interativa
+k8s-hpa-manager
+
+# Mostrar versão e verificar updates
+k8s-hpa-manager version
+
+# Auto-descobrir clusters do kubeconfig
+k8s-hpa-manager autodiscover
+
+# Modo demo (mostra status sem executar)
+k8s-hpa-manager --demo
+
+# Debug mode
+k8s-hpa-manager --debug
+
+# Custom kubeconfig
+k8s-hpa-manager --kubeconfig /path/to/config
+
+# Desabilitar verificação de updates
+k8s-hpa-manager --check-updates=false
+```
+
+### Comandos de Desenvolvimento
+
+```bash
+# Build
+make build                    # → ./build/k8s-hpa-manager
+make build-all                # Multi-platform builds
+
+# Run
+make run                      # Build + run
+make run-dev                  # Run com debug
+
+# Test
+make test                     # Run tests
+make test-coverage            # Coverage report (coverage.html)
+
+# Release
+make version                  # Show detected version
+make release                  # Build para todas plataformas
+```
+
+---
+
+## ⌨️ Controles de Teclado
+
+### Navegação Global
+
+| Tecla | Ação |
+|-------|------|
+| `↑↓` ou `k j` | Navegar listas (vi-keys) |
+| `←→` ou `h l` | Navegar horizontalmente |
+| `Tab` | Alternar entre painéis |
+| `Space` | Selecionar/deselecionar item |
+| `Enter` | Confirmar seleção ou editar |
+| `ESC` | Voltar/cancelar (preserva contexto) |
+| `?` | Help contextual com scroll |
+| `F4` | Sair da aplicação |
+
+### Clusters & Sessões
+
+| Tecla | Ação |
+|-------|------|
+| `F5` ou `R` | Reload lista de clusters |
+| `Ctrl+L` | Carregar sessão salva |
+| `Ctrl+S` | Salvar sessão (funciona SEM modificações para rollback) |
+| `Ctrl+M` | Criar sessão mista (HPAs + Node Pools) |
+
+### HPAs
+
+| Tecla | Ação |
+|-------|------|
+| `Ctrl+D` | Aplicar HPA individual (mostra contador ●) |
+| `Ctrl+U` | Aplicar todos HPAs em lote |
+| `Space` (edit) | Toggle rollout (Deployment/DaemonSet/StatefulSet) |
+| `↑↓` | Navegar campos no modo edição |
+
+### Node Pools Azure
+
+| Tecla | Ação |
+|-------|------|
+| `Ctrl+N` | Acessar gerenciamento de node pools |
+| `Ctrl+D/U` | Aplicar mudanças em node pools |
+| `Space` (edit) | Toggle autoscaling |
+| `F12` | Marcar para execução sequencial (max 2) |
+
+### Features Especiais
+
+| Tecla | Ação |
+|-------|------|
+| `F8` | Prometheus Stack Management |
+| `F9` | CronJob Management |
+| `S` (namespaces) | Toggle namespaces de sistema |
+| `Shift+↑↓` | Scroll em painéis responsivos |
+
+### Multi-tab Navigation
+
+| Tecla | Ação |
+|-------|------|
+| `Ctrl+T` | Nova tab (max 10) |
+| `Ctrl+W` | Fechar tab atual (não fecha a última) |
+| `Alt+1-9` | Ir para tab 1-9 |
+| `Alt+0` | Ir para tab 10 |
+| `Ctrl+→` | Próxima tab (wrap-around) |
+| `Ctrl+←` | Tab anterior (wrap-around) |
+
+---
 
 ## 💾 Sistema de Sessões
 
-### 🔄 **Comportamento das Sessões**
+### Comportamento
 
-As sessões agora funcionam como **"estados salvos"** para revisão:
+As sessões funcionam como **"estados salvos para revisão"**:
 
-1. **Ctrl+S** → Salva estado atual (cluster + namespaces + HPAs modificados)
-2. **Ctrl+L** → **Restaura estado** para revisão (NÃO aplica automaticamente!)
-3. **Revisar/Editar** → Faça ajustes nos HPAs carregados
-4. **Ctrl+D/U** → Aplique quando estiver pronto
+1. **Ctrl+S** → Salva estado atual (cluster + namespaces + HPAs/Node Pools modificados)
+2. **Ctrl+L** → Restaura estado para **revisão** (NÃO aplica automaticamente!)
+3. **Revisar/Editar** → Ajuste valores se necessário
+4. **Ctrl+D/U** → Aplique quando pronto (com confirmação modal)
 
-> 🎯 **Vantagem**: Você pode carregar uma sessão, revisar as mudanças, fazer ajustes (como alterar rollout) e depois aplicar.
+> 💡 **Vantagem**: Você pode carregar uma sessão, revisar mudanças, ajustar rollouts e depois aplicar com segurança.
 
-### 📂 **Templates de Nomenclatura**
+### Estrutura de Pastas
 
-#### **Templates Disponíveis**
-- **Action + Cluster + Timestamp**: `{action}_{cluster}_{timestamp}`
-- **Environment + Date**: `{env}_{date}`  
-- **Quick Save**: `Quick-save_{timestamp}`
-
-#### **Variáveis Suportadas**
-- `{action}` → Ação customizada
-- `{cluster}` → Nome do cluster
-- `{env}` → Ambiente (dev/prod/staging)
-- `{timestamp}` → dd-mm-yy_hh:mm:ss
-- `{date}` → dd-mm-yy
-- `{user}` → Usuário do sistema
-- `{hpa_count}` → Número de HPAs
-
-### Estrutura das Sessões
-
-As sessões são salvas em `~/.k8s-hpa-manager/sessions/` em formato JSON:
-
-```json
-{
-  "session": {
-    "name": "Up-sizing_aks-teste-prd_19-09-24_14:23:45",
-    "created_at": "2024-09-19T14:23:45Z",
-    "created_by": "admin",
-    "description": "Scaling up production workloads"
-  },
-  "changes": [
-    {
-      "cluster": "akspriv-dev-central",
-      "namespace": "api-services",
-      "hpa": "web-api-hpa",
-      "original_values": {
-        "min_replicas": 2,
-        "max_replicas": 10
-      },
-      "new_values": {
-        "min_replicas": 2,
-        "max_replicas": 15
-      }
-    }
-  ]
-}
+```
+~/.k8s-hpa-manager/sessions/
+├── HPA-Upscale/          # Sessões de scale up de HPAs
+├── HPA-Downscale/        # Sessões de scale down de HPAs
+├── Node-Upscale/         # Sessões de scale up de node pools
+├── Node-Downscale/       # Sessões de scale down de node pools
+└── Mixed/                # Sessões combinando HPAs + Node Pools
 ```
 
-## 🛠️ Desenvolvimento
+### Templates de Nomenclatura
 
-### Configuração do Ambiente
+#### Variáveis Disponíveis
+
+| Variável | Descrição | Exemplo |
+|----------|-----------|---------|
+| `{action}` | Ação customizada | `upscale`, `emergency` |
+| `{cluster}` | Nome do cluster | `akspriv-prod-east` |
+| `{env}` | Ambiente | `dev`, `prod`, `staging` |
+| `{timestamp}` | Data/hora completa | `19-09-24_14:23:45` |
+| `{date}` | Data | `19-09-24` |
+| `{time}` | Hora | `14:23:45` |
+| `{user}` | Usuário do sistema | `admin` |
+| `{hpa_count}` | Número de HPAs | `15` |
+
+#### Templates Predefinidos
 
 ```bash
-# Configurar ambiente de desenvolvimento
-make dev-setup
+# Action + Cluster + Timestamp
+{action}_{cluster}_{timestamp}
+# Resultado: "upscale_akspriv-prod_19-09-24_14:23:45"
 
-# Executar em modo de desenvolvimento
-make run-dev
+# Environment + Date
+{env}_{date}
+# Resultado: "prod_19-09-24"
 
-# Executar testes
-make test
-
-# Executar testes com coverage
-make test-coverage
-
-# Executar linter
-make lint
-
-# Formatar código
-make fmt
+# Quick Save
+Quick-save_{timestamp}
+# Resultado: "Quick-save_19-09-24_14:23:45"
 ```
+
+### Rollback Manual
+
+```bash
+# Crie snapshot SEM modificar nada:
+k8s-hpa-manager
+# 1. Ctrl+L → Carrega sessão com estado atual
+# 2. Ctrl+S imediatamente (SEM modificar!)
+# 3. Nomear: "rollback-producao-2025-01-10"
+# ✅ Sessão de backup pronta para rollback futuro
+```
+
+---
+
+## ☁️ Node Pools Azure AKS
+
+### Auto-discovery
+
+```bash
+# Extrai resource groups e subscriptions do kubeconfig
+k8s-hpa-manager autodiscover
+
+# Gera/atualiza ~/.k8s-hpa-manager/clusters-config.json
+# Escalável para 26+ clusters sem configuração manual
+```
+
+### Workflow de Edição
+
+```bash
+k8s-hpa-manager
+
+# Ctrl+N → Abre node pools
+# Edite campos:
+#   - Node Count (manual mode)
+#   - Min Nodes / Max Nodes (autoscaling mode)
+#   - Autoscaling Enabled (Space para toggle)
+# Ctrl+S → Salva sessão
+# Ctrl+D/U → Aplica (com confirmação modal)
+```
+
+### Execução Sequencial (Stress Tests)
+
+Útil para testar capacidade durante scale down/up controlado:
+
+```bash
+k8s-hpa-manager
+
+# 1. Ctrl+N → Node pools
+# 2. F12 em monitoring-1 → Marca como *1
+# 3. F12 em monitoring-2 → Marca como *2
+# 4. Edite valores (ex: *1 → 0 nodes, *2 → scale up)
+# 5. Ctrl+D/U → Inicia execução
+# ✅ Interface permanece responsiva
+# ✅ *1 executa → StatusContainer mostra progresso
+# ✅ *1 completa → *2 inicia automaticamente
+# ✅ Multi-tasking: edite HPAs enquanto pools executam
+```
+
+**Workflow Assíncrono:**
+- `🔍 Verificando conectividade VPN com Azure...`
+- `✅ VPN conectada - Azure acessível`
+- `🔄 *1: Aplicando...` → `✅ *1: Completado`
+- `🚀 Iniciando automaticamente *2` → `✅ *2: Completado`
+
+---
+
+## 🎨 Features Avançadas
+
+### CronJob Management (F9)
+
+```bash
+k8s-hpa-manager
+
+# Na seleção de namespaces → F9
+# Recursos:
+#   - Status visual: 🟢 Ativo, 🔴 Suspenso, 🟡 Falhou, 🔵 Executando
+#   - Schedule description: "0 2 * * * - executa todo dia às 2:00 AM"
+#   - Enable/disable: Enter → Space (toggle suspend)
+#   - Apply: Ctrl+D (individual) ou Ctrl+U (batch)
+# ESC → Volta para namespaces (preserva estado)
+```
+
+### Prometheus Stack Management (F8)
+
+```bash
+k8s-hpa-manager
+
+# Na seleção de namespaces → F8
+# Features:
+#   - Métricas assíncronas (não bloqueia UI)
+#   - Exibição dual:
+#     * Lista: "CPU: 1 (uso: 264m)/2 | MEM: 8Gi (uso: 3918Mi)/12Gi"
+#     * Edit: "CPU Request: 1", "Memory Request: 8Gi"
+#   - Auto-scroll: Item selecionado sempre visível
+#   - Refresh: 300ms durante coleta de métricas
+# ESC → Volta para namespaces (preserva estado)
+```
+
+### Validação VPN On-Demand
+
+A aplicação valida conectividade VPN antes de operações críticas:
+
+```bash
+# Pontos de validação:
+#   - Startup (discoverClusters)
+#   - Load namespaces
+#   - Load HPAs
+#   - Apply operations (Ctrl+D/U)
+
+# Feedback no StatusContainer:
+#   🔍 Validando conectividade VPN...
+#   ✅ VPN conectada - Kubernetes acessível
+#
+#   # Ou se falhar:
+#   ❌ VPN desconectada - Kubernetes inacessível
+#   💡 SOLUÇÃO: Conecte-se à VPN e tente novamente (F5)
+```
+
+### Versionamento Automático
+
+```bash
+# Verificação em background (1x/dia)
+k8s-hpa-manager
+
+# Notificação no StatusContainer (após 3s):
+# 🆕 Nova versão disponível: 1.5.0 → 1.6.0
+# 📦 Download: https://github.com/.../v1.6.0
+# 💡 Execute 'k8s-hpa-manager version'
+
+# Manual
+k8s-hpa-manager version
+# Output:
+#   k8s-hpa-manager versão 1.6.0
+#   Verificando updates...
+#   ✅ Você está usando a versão mais recente!
+```
+
+### Log Detalhado (Antes → Depois)
+
+Todas alterações exibidas no StatusContainer:
+
+```
+⚙️ Aplicando HPA: ingress-nginx/nginx-ingress-controller
+  📝 Min Replicas: 1 → 2
+  📝 Max Replicas: 8 → 12
+  📝 CPU Target: 60% → 70%
+  🔧 CPU Request: 50m → 100m
+  🔧 Memory Request: 90Mi → 180Mi
+✅ HPA aplicado: ingress-nginx/nginx-ingress-controller
+```
+
+---
+
+## 🛠️ Desenvolvimento
 
 ### Estrutura do Projeto
 
 ```
 k8s-hpa-manager/
-├── cmd/                    # Comandos CLI
-│   └── root.go
-├── internal/               # Código interno
-│   ├── config/            # Gerenciamento kubeconfig
-│   ├── kubernetes/        # Cliente Kubernetes
-│   ├── models/            # Estruturas de dados
-│   ├── session/           # Gerenciamento de sessões
-│   └── tui/               # Interface do usuário
-├── pkg/                   # Código público (se necessário)
-├── build/                 # Artefatos de build
-├── go.mod
-├── go.sum
+├── cmd/                           # CLI entry points
+│   ├── root.go                    # Main command + Azure auth
+│   ├── version.go                 # Version command
+│   ├── autodiscover.go            # Cluster auto-discovery
+│   └── k8s-teste/                 # Layout testing tools
+├── internal/
+│   ├── tui/                       # Terminal UI (Bubble Tea)
+│   │   ├── app.go                 # Main orchestrator
+│   │   ├── handlers.go            # Event handlers
+│   │   ├── views.go               # UI rendering
+│   │   ├── message.go             # Bubble Tea messages
+│   │   ├── resource_*.go          # HPA/Node Pool management
+│   │   ├── cronjob_*.go           # CronJob management
+│   │   ├── components/            # Reusable UI components
+│   │   └── layout/                # Layout management
+│   ├── models/
+│   │   └── types.go               # Domain model & app state
+│   ├── kubernetes/
+│   │   └── client.go              # K8s client wrapper
+│   ├── azure/
+│   │   └── auth.go                # Azure SDK auth
+│   ├── session/
+│   │   └── manager.go             # Session persistence
+│   ├── config/
+│   │   └── kubeconfig.go          # Cluster discovery
+│   ├── updater/                   # Versioning system
+│   │   ├── version.go
+│   │   ├── github.go
+│   │   └── checker.go
+│   └── ui/                        # UI utilities
+│       ├── progress.go
+│       ├── logs.go
+│       └── status_panel.go
+├── build/                         # Build artifacts
+├── backups/                       # Code backups (via backup.sh)
+├── install.sh                     # Automated installer
+├── uninstall.sh                   # Automated uninstaller
+├── backup.sh                      # Create backups
+├── restore.sh                     # Restore backups
 ├── Makefile
-└── README.md
+└── go.mod
 ```
 
-### Arquitetura
+### Tech Stack
 
-- **Bubble Tea**: Framework TUI para interfaces interativas
-- **Lipgloss**: Estilização e layout da interface
-- **client-go**: Cliente oficial Kubernetes
-- **cobra**: Framework CLI para comandos
+| Tecnologia | Versão | Uso |
+|------------|--------|-----|
+| **Go** | 1.23+ (toolchain 1.24.7) | Linguagem principal |
+| **Bubble Tea** | v0.24.2 | TUI framework |
+| **Lipgloss** | v1.1.0 | Styling e layout |
+| **Cobra** | v1.10.1 | CLI commands |
+| **client-go** | v0.31.4 | Kubernetes client oficial |
+| **Azure SDK** | Latest | Azure AKS management |
+
+### Padrões de Código
+
+**State Management:**
+- Todo estado da aplicação em `AppModel` (`internal/models/types.go`)
+- State transitions via `AppState` enum
+- Bubble Tea messages para operações assíncronas
+
+**Edição de Texto:**
+- Centralizada em `internal/tui/text_input.go`
+- Cursor inteligente com overlay
+- Unicode-safe (sempre usar `[]rune`)
+
+**Error Handling:**
+- Propagação adequada (não usar panics)
+- Mensagens no StatusContainer
+- ESC sempre retorna ao contexto anterior
+
+---
+
+## 🔧 Troubleshooting
+
+### Problemas Comuns
+
+#### Instalação
+
+| Problema | Solução |
+|----------|---------|
+| **"Go not found"** | Instale Go 1.23+ de [golang.org/dl](https://golang.org/dl/) |
+| **Permission denied** | Use `sudo` para instalar em `/usr/local/bin/` |
+| **Binary not found** | Reinicie terminal ou adicione `/usr/local/bin` ao PATH |
+
+#### Conectividade
+
+| Problema | Solução |
+|----------|---------|
+| **Cluster offline** | Execute `kubectl cluster-info --context=<cluster>` |
+| **VPN desconectada** | Conecte VPN e pressione F5 para reload |
+| **HPAs não carregam** | Verifique RBAC e toggle namespaces sistema (tecla `S`) |
+| **Azure timeout** | Valide `az login` e subscription ativa |
+
+#### Interface
+
+| Problema | Solução |
+|----------|---------|
+| **Help muito grande** | Use ↑↓ ou PgUp/PgDn para scroll |
+| **Texto minúsculo** | Interface adapta-se ao terminal (use Ctrl+0 para tamanho normal) |
+| **Erro sem saída** | Use ESC para voltar (preserva contexto) |
+
+#### Node Pools
+
+| Problema | Solução |
+|----------|---------|
+| **Node pools não carregam** | Execute `k8s-hpa-manager autodiscover` |
+| **"clusters-config.json not found"** | Execute autodiscover para gerar o arquivo |
+| **Azure auth failed** | Execute `az login` manualmente |
+
+### Debug Mode
+
+```bash
+# Ativa logging detalhado
+k8s-hpa-manager --debug
+
+# Logs exibidos no terminal incluem:
+#   - Estado da aplicação (AppState transitions)
+#   - Mensagens Bubble Tea
+#   - Operações Kubernetes (API calls)
+#   - Azure authentication flow
+```
+
+### Backup e Restore
+
+```bash
+# Criar backup antes de modificações
+./backup.sh "descrição do backup"
+
+# Listar backups disponíveis
+./restore.sh
+
+# Restaurar backup específico
+./restore.sh backup_20251001_122526
+```
+
+- Mantém 10 backups mais recentes
+- Metadados inclusos (git commit, data, usuário)
+
+---
 
 ## 📊 Exemplos Práticos
 
-### 🚨 **Cenário 1: Scale Up Emergencial**
+### 🚨 Cenário 1: Scale Up Emergencial
 
 ```bash
 k8s-hpa-manager
+
 # 1. Selecionar cluster produção → ENTER
 # 2. Selecionar namespaces críticos → SPACE (múltiplos)
 # 3. ENTER → Carregar HPAs
 # 4. Selecionar HPAs → SPACE, ENTER para editar
-# 5. Aumentar max_replicas, ativar rollout → SPACE
-# 6. Ctrl+S → Salvar como "Emergency-scale-prod"
-# 7. Ctrl+U → Aplicar todas as mudanças
+# 5. Aumentar max_replicas de 10 → 20
+# 6. SPACE → Ativar rollout
+# 7. Ctrl+S → Salvar como "emergency-scale-2025-10-15"
+# 8. Ctrl+U → ENTER (confirmar modal)
+# ✅ Todas mudanças aplicadas + rollouts executados
 ```
 
-### 🛍️ **Cenário 2: Preparação Black Friday**
+### 🛍️ Cenário 2: Preparação Black Friday
 
 ```bash
 k8s-hpa-manager
-# 1. Ctrl+L → Carregar sessão "Black-friday-prep"
-# 2. Revisar HPAs carregados (já modificados!)
-# 3. Ajustar rollout se necessário → SPACE
-# 4. Ctrl+U → Aplicar todas de uma vez
-# ✅ Rollouts executados automaticamente
+
+# DIA 1 - Preparação (semana antes)
+# 1. Editar HPAs para valores black friday
+# 2. Ctrl+S → "blackfriday-2025-config"
+# 3. ESC → Sai sem aplicar
+
+# DIA 2 - Black Friday (dia do evento)
+# 1. Ctrl+L → Carregar "blackfriday-2025-config"
+# 2. Revisar valores (já estão configurados!)
+# 3. Ctrl+U → ENTER (aplicar tudo)
+# ✅ Rollouts automáticos executados
 ```
 
-### 🔄 **Cenário 3: Rollback Rápido**
+### 🔄 Cenário 3: Rollback Rápido
 
 ```bash
+# ANTES do incident (criar backup preventivo)
 k8s-hpa-manager
-# 1. Ctrl+L → Carregar sessão "Backup-pre-incident"
-# 2. Verificar valores originais
-# 3. Ctrl+U → Restaurar configurações
-# 4. ? → Ver ajuda se necessário
-# 5. ESC de qualquer erro → Não perde progresso
+# 1. Ctrl+L → Carregar estado atual
+# 2. Ctrl+S imediatamente (SEM modificar)
+# 3. Nomear: "backup-pre-change-2025-10-15"
+
+# DURANTE incident (rollback)
+k8s-hpa-manager
+# 1. Ctrl+L → "backup-pre-change-2025-10-15"
+# 2. Revisar valores originais
+# 3. Ctrl+U → ENTER (aplicar)
+# ✅ Rollback completo em segundos
 ```
 
-### 💡 **Dicas de Uso**
+### ⚡ Cenário 4: Stress Test com Node Pools
 
-- **`?`** sempre disponível para ajuda contextual
-- **Ctrl+D** para testar um HPA antes de aplicar todos
-- **ESC** nunca força saída - sempre volta ao contexto
-- **Sessões** preservam TODO o estado para revisão posterior
+```bash
+k8s-hpa-manager autodiscover  # Se primeira vez
 
-## ⚠️ Considerações de Segurança
-
-- A aplicação requer permissões de leitura/escrita em HPAs
-- Permissões para executar rollout restart em deployments
-- Acesso aos clusters deve ser configurado via kubeconfig
-- Sessões são salvas localmente em texto simples
-
-## 🤝 Contribuição
-
-1. Fork o projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
-5. Abra um Pull Request
-
-## 📝 Licença
-
-Este projeto está sob a licença MIT. Veja o arquivo `LICENSE` para detalhes.
-
-## 🔧 Troubleshooting
-
-### 🚨 **Problemas Comuns**
-
-**Instalação:**
-- **"Go not found"** → Instale Go 1.21+ e configure PATH
-- **Permission denied** → Use `sudo` para `/usr/local/bin/`
-- **Command not found** → Reinicie terminal ou verifique PATH
-
-**Conectividade:**
-- **Cluster offline** → `kubectl cluster-info --context=<cluster>`
-- **Client not found** → Bug corrigido - reinicie se persistir
-- **HPAs não carregam** → Verifique RBAC e use `S` para toggle
-
-**Interface:**
-- **Help muito grande** → Use ↑↓ ou PgUp/PgDn para navegar
-- **Erro sem saída** → Use `ESC` para voltar (não perde contexto!)
-
-### 💡 **Dicas de Performance**
-- Filtros de sistema melhoram velocidade
-- Carregamento assíncrono reduz espera
-- Sessões preservam trabalho entre execuções
-
-## ✨ Melhorias Recentes
-
-### 🆕 **v2.0 - Interface Renovada**
-- ✅ **Sistema de Ajuda** com scroll navegável (`?`)
-- ✅ **Correção Ctrl+D** - aplicação individual agora funciona corretamente
-- ✅ **Recuperação de Erros** - ESC volta de erros mantendo contexto
-- ✅ **Sessões Inteligentes** - carrega para revisão, não aplica automaticamente
-- ✅ **Status Visual** - indicadores de conectividade e modificações
-- ✅ **Multi-namespace** - seleção e gestão de múltiplos namespaces
-
-### 🎯 **Próximas Melhorias**
-- [ ] Métricas customizadas (além de CPU/Memory)
-- [ ] Export/import de sessões
-- [ ] Temas de cores personalizáveis
-- [ ] Histórico de operações
-
-## 📞 Suporte
-
-### 🆘 **Precisa de Ajuda?**
-
-1. **`?`** → Ajuda contextual na própria aplicação (scroll com ↑↓)
-2. **Troubleshooting** → Veja seção acima para problemas comuns
-3. **Debug** → Execute com `k8s-hpa-manager --debug`
-4. **Issues** → Abra uma issue no repositório com logs
-
-### 📋 **Reportando Bugs**
-
-Inclua nas issues:
-- **Versão do Go**: `go version`
-- **Contexto**: Quando o erro ocorreu
-- **Logs**: Output com `--debug`
-- **Steps**: Como reproduzir o problema
-
-### 🤝 **Contribuindo**
-
-1. Fork do projeto
-2. Branch para feature: `git checkout -b feature/nova-funcionalidade`
-3. Commit: `git commit -m 'Add: nova funcionalidade'`
-4. Push: `git push origin feature/nova-funcionalidade`
-5. Pull Request
+k8s-hpa-manager
+# 1. Ctrl+N → Node pools
+# 2. F12 em monitoring-1 → *1 (primeiro)
+# 3. F12 em monitoring-2 → *2 (segundo)
+# 4. Edit *1: Node Count = 0 (scale down total)
+# 5. Edit *2: Node Count = 5 (scale up)
+# 6. Ctrl+U → ENTER
+# ✅ *1 executa (scale down)
+# ✅ Sistema monitora → *2 inicia automaticamente
+# ✅ Interface livre para editar HPAs durante execução
+```
 
 ---
 
-> 🎯 **Desenvolvido para simplificar o gerenciamento de HPAs do Kubernetes**  
-> ⚡ **Interface rápida, intuitiva e poderosa**  
-> 💾 **Sessões que preservam seu trabalho**
+## 🤝 Contribuição
+
+Contribuições são bem-vindas! Por favor:
+
+1. Fork o projeto
+2. Crie uma branch: `git checkout -b feature/nova-funcionalidade`
+3. Commit: `git commit -m 'feat: adiciona nova funcionalidade'`
+4. Push: `git push origin feature/nova-funcionalidade`
+5. Abra um Pull Request
+
+### Reportando Bugs
+
+Ao abrir uma issue, inclua:
+
+- **Versão**: `k8s-hpa-manager version`
+- **Go version**: `go version`
+- **OS**: `uname -a`
+- **Logs**: Output com `--debug`
+- **Steps to reproduce**: Como reproduzir o problema
+
+---
+
+## 📝 Licença
+
+Este projeto está sob a licença MIT. Veja [LICENSE](LICENSE) para detalhes.
+
+---
+
+## 📞 Suporte
+
+### Precisa de Ajuda?
+
+1. **Help Contextual**: Pressione `?` na aplicação
+2. **Troubleshooting**: Consulte seção acima
+3. **Debug Mode**: Execute com `--debug`
+4. **Issues**: [Abra uma issue](https://github.com/Paulo-Ribeiro-Log/Scale_HPA/issues)
+
+---
+
+<div align="center">
+
+**🎯 Desenvolvido para simplificar o gerenciamento de HPAs e Node Pools**
+
+⚡ **Interface rápida, intuitiva e poderosa** | 💾 **Sessões que preservam seu trabalho**
+
+[![⭐ Star no GitHub](https://img.shields.io/github/stars/Paulo-Ribeiro-Log/Scale_HPA?style=social)](https://github.com/Paulo-Ribeiro-Log/Scale_HPA)
+
+</div>
