@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -3430,73 +3431,117 @@ func (a *App) updateNodePoolViaAzureCLI(pool models.NodePool) error {
 // DISABLED: 	a.updateNodePoolProgress(pool.Name, models.RolloutStatusRunning, 25, "Preparando comandos Azure CLI...", "")
 
 	// Construir comandos Azure CLI baseados nas mudanças
+	// IMPORTANTE: Ordem correta para evitar conflitos:
+	// 1. Se mudou de auto→manual: PRIMEIRO desabilita autoscaling, DEPOIS faz scale
+	// 2. Se mudou de manual→auto: PRIMEIRO faz scale (se necessário), DEPOIS habilita autoscaling
+	// 3. Se permaneceu auto: Atualiza min/max
+	// 4. Se permaneceu manual: Faz scale
 	var cmds [][]string
 
-	// Update node count se mudou
-	if pool.NodeCount != pool.OriginalValues.NodeCount {
+	// Detectar transição de autoscaling
+	changingToManual := pool.OriginalValues.AutoscalingEnabled && !pool.AutoscalingEnabled
+	changingToAuto := !pool.OriginalValues.AutoscalingEnabled && pool.AutoscalingEnabled
+	staysAuto := pool.OriginalValues.AutoscalingEnabled && pool.AutoscalingEnabled
+	staysManual := !pool.OriginalValues.AutoscalingEnabled && !pool.AutoscalingEnabled
+
+	// CENÁRIO 1: Mudou de AUTO → MANUAL (precisa desabilitar autoscaling PRIMEIRO)
+	if changingToManual {
+		// Passo 1: Desabilitar autoscaling
 		cmd := []string{
-			"az", "aks", "nodepool", "scale",
+			"az", "aks", "nodepool", "update",
+			"--disable-cluster-autoscaler",
 			"--resource-group", pool.ResourceGroup,
 			"--cluster-name", clusterNameForAzure,
 			"--name", pool.Name,
-			"--node-count", fmt.Sprintf("%d", pool.NodeCount),
 		}
-		// Adicionar subscription se disponível (com aspas se houver espaços)
 		if pool.Subscription != "" {
 			cmd = append(cmd, "--subscription", pool.Subscription)
 		}
 		cmds = append(cmds, cmd)
-	}
 
-	// Update autoscaling enabled/disabled se mudou
-	if pool.AutoscalingEnabled != pool.OriginalValues.AutoscalingEnabled {
-		if pool.AutoscalingEnabled {
-			// Habilitar autoscaling
+		// Passo 2: Se NodeCount mudou, fazer scale manual
+		if pool.NodeCount != pool.OriginalValues.NodeCount {
 			cmd := []string{
-				"az", "aks", "nodepool", "update",
-				"--enable-cluster-autoscaler",
-				"--min-count", fmt.Sprintf("%d", pool.MinNodeCount),
-				"--max-count", fmt.Sprintf("%d", pool.MaxNodeCount),
+				"az", "aks", "nodepool", "scale",
 				"--resource-group", pool.ResourceGroup,
 				"--cluster-name", clusterNameForAzure,
 				"--name", pool.Name,
+				"--node-count", fmt.Sprintf("%d", pool.NodeCount),
 			}
-			// Adicionar subscription se disponível
-			if pool.Subscription != "" {
-				cmd = append(cmd, "--subscription", pool.Subscription)
-			}
-			cmds = append(cmds, cmd)
-		} else {
-			// Desabilitar autoscaling
-			cmd := []string{
-				"az", "aks", "nodepool", "update",
-				"--disable-cluster-autoscaler",
-				"--resource-group", pool.ResourceGroup,
-				"--cluster-name", clusterNameForAzure,
-				"--name", pool.Name,
-			}
-			// Adicionar subscription se disponível
 			if pool.Subscription != "" {
 				cmd = append(cmd, "--subscription", pool.Subscription)
 			}
 			cmds = append(cmds, cmd)
 		}
-	} else if pool.AutoscalingEnabled && (pool.MinNodeCount != pool.OriginalValues.MinNodeCount || pool.MaxNodeCount != pool.OriginalValues.MaxNodeCount) {
-		// Update min/max node count se autoscaling está habilitado e mudou
+	}
+
+	// CENÁRIO 2: Mudou de MANUAL → AUTO
+	if changingToAuto {
+		// Passo 1: Se NodeCount mudou, fazer scale manual ANTES de habilitar autoscaling
+		if pool.NodeCount != pool.OriginalValues.NodeCount {
+			cmd := []string{
+				"az", "aks", "nodepool", "scale",
+				"--resource-group", pool.ResourceGroup,
+				"--cluster-name", clusterNameForAzure,
+				"--name", pool.Name,
+				"--node-count", fmt.Sprintf("%d", pool.NodeCount),
+			}
+			if pool.Subscription != "" {
+				cmd = append(cmd, "--subscription", pool.Subscription)
+			}
+			cmds = append(cmds, cmd)
+		}
+
+		// Passo 2: Habilitar autoscaling com min/max
 		cmd := []string{
 			"az", "aks", "nodepool", "update",
-			"--update-cluster-autoscaler",
+			"--enable-cluster-autoscaler",
 			"--min-count", fmt.Sprintf("%d", pool.MinNodeCount),
 			"--max-count", fmt.Sprintf("%d", pool.MaxNodeCount),
 			"--resource-group", pool.ResourceGroup,
 			"--cluster-name", clusterNameForAzure,
 			"--name", pool.Name,
 		}
-		// Adicionar subscription se disponível
 		if pool.Subscription != "" {
 			cmd = append(cmd, "--subscription", pool.Subscription)
 		}
 		cmds = append(cmds, cmd)
+	}
+
+	// CENÁRIO 3: Permaneceu AUTO - atualizar min/max se mudou
+	if staysAuto {
+		if pool.MinNodeCount != pool.OriginalValues.MinNodeCount || pool.MaxNodeCount != pool.OriginalValues.MaxNodeCount {
+			cmd := []string{
+				"az", "aks", "nodepool", "update",
+				"--update-cluster-autoscaler",
+				"--min-count", fmt.Sprintf("%d", pool.MinNodeCount),
+				"--max-count", fmt.Sprintf("%d", pool.MaxNodeCount),
+				"--resource-group", pool.ResourceGroup,
+				"--cluster-name", clusterNameForAzure,
+				"--name", pool.Name,
+			}
+			if pool.Subscription != "" {
+				cmd = append(cmd, "--subscription", pool.Subscription)
+			}
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	// CENÁRIO 4: Permaneceu MANUAL - fazer scale se mudou
+	if staysManual {
+		if pool.NodeCount != pool.OriginalValues.NodeCount {
+			cmd := []string{
+				"az", "aks", "nodepool", "scale",
+				"--resource-group", pool.ResourceGroup,
+				"--cluster-name", clusterNameForAzure,
+				"--name", pool.Name,
+				"--node-count", fmt.Sprintf("%d", pool.NodeCount),
+			}
+			if pool.Subscription != "" {
+				cmd = append(cmd, "--subscription", pool.Subscription)
+			}
+			cmds = append(cmds, cmd)
+		}
 	}
 
 
@@ -3550,41 +3595,119 @@ func (a *App) executeAzureCommand(cmdArgs []string) error {
 		fmt.Printf("🚀 Running command: %s %s\n", cmdArgs[0], strings.Join(cmdArgs[1:], " "))
 	}
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		errorOutput := strings.TrimSpace(string(output))
+	// Separar stdout e stderr para tratar warnings adequadamente
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
-		// Extrair mensagem de erro real do Azure CLI
+	err := cmd.Run()
+
+	stdoutStr := strings.TrimSpace(stdout.String())
+	stderrStr := strings.TrimSpace(stderr.String())
+
+	// Warnings conhecidos que devem ser ignorados (não são erros!)
+	knownWarnings := []string{
+		"UserWarning: pkg_resources is deprecated",
+		"The behavior of this command has been altered by the following extension",
+		"__import__('pkg_resources').declare_namespace(__name__)",
+	}
+
+	// Função helper para verificar se stderr contém apenas warnings
+	isOnlyWarnings := func(stderr string) bool {
+		if stderr == "" {
+			return true // Sem stderr = sem problemas
+		}
+
+		lines := strings.Split(stderr, "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue // Ignorar linhas vazias
+			}
+
+			// Verificar se linha contém warning conhecido
+			isWarning := false
+			for _, warning := range knownWarnings {
+				if strings.Contains(trimmed, warning) {
+					isWarning = true
+					break
+				}
+			}
+
+			// Se encontrou linha que NÃO é warning conhecido, é erro real
+			if !isWarning && !strings.Contains(trimmed, "WARNING:") {
+				return false
+			}
+		}
+		return true // Todas as linhas são warnings
+	}
+
+	// Verificar se houve erro REAL (não apenas warnings)
+	if err != nil {
+		// Se stderr contém apenas warnings, ignorar o "erro"
+		if isOnlyWarnings(stderrStr) {
+			// Log warnings em debug mode, mas não tratar como erro
+			if a.debug && stderrStr != "" {
+				fmt.Printf("⚠️ Warnings ignorados:\n%s\n", stderrStr)
+			}
+			// Continuar normalmente - comando foi bem-sucedido
+			a.model.StatusContainer.AddSuccess("azure-cli", fmt.Sprintf("✅ %s executado com sucesso", operation))
+			a.processAzureOutput(stdoutStr)
+			return nil
+		}
+
+		// Erro REAL - extrair mensagem
 		azureError := "exit status 1"
-		if errorOutput != "" {
-			// Pegar primeira linha não-vazia do erro do Azure CLI
-			lines := strings.Split(errorOutput, "\n")
+		if stderrStr != "" {
+			// Pegar primeira linha não-vazia do erro REAL
+			lines := strings.Split(stderrStr, "\n")
 			for _, line := range lines {
 				if trimmed := strings.TrimSpace(line); trimmed != "" {
-					azureError = trimmed
-					// Limitar tamanho para não poluir
-					if len(azureError) > 150 {
-						azureError = azureError[:150] + "..."
+					// Ignorar warnings na extração de erro
+					isWarning := false
+					for _, warning := range knownWarnings {
+						if strings.Contains(trimmed, warning) {
+							isWarning = true
+							break
+						}
 					}
-					break
+					if !isWarning && !strings.Contains(trimmed, "WARNING:") {
+						azureError = trimmed
+						// Limitar tamanho para não poluir
+						if len(azureError) > 150 {
+							azureError = azureError[:150] + "..."
+						}
+						break
+					}
 				}
 			}
 		}
 
 		a.model.StatusContainer.AddError("azure-cli", fmt.Sprintf("❌ Falha: %s", azureError))
 
-		// Log detalhado no terminal (apenas em debug mode ou primeiras linhas)
+		// Log detalhado no terminal (apenas em debug mode)
 		if a.debug {
 			fmt.Printf("❌ Command failed with error: %s\n", err.Error())
-			fmt.Printf("📄 Full error output:\n%s\n", errorOutput)
-		} else if errorOutput != "" {
-			// Mostrar apenas primeiras 3 linhas não-vazias no StatusContainer
-			lines := strings.Split(errorOutput, "\n")
+			fmt.Printf("📄 Stderr output:\n%s\n", stderrStr)
+			fmt.Printf("📄 Stdout output:\n%s\n", stdoutStr)
+		} else if stderrStr != "" {
+			// Mostrar apenas primeiras 3 linhas de ERRO REAL no StatusContainer
+			lines := strings.Split(stderrStr, "\n")
 			count := 0
 			for _, line := range lines {
 				if trimmed := strings.TrimSpace(line); trimmed != "" && count < 3 {
-					a.model.StatusContainer.AddError("azure-error", trimmed)
-					count++
+					// Não mostrar warnings como erro
+					isWarning := false
+					for _, warning := range knownWarnings {
+						if strings.Contains(trimmed, warning) {
+							isWarning = true
+							break
+						}
+					}
+					if !isWarning && !strings.Contains(trimmed, "WARNING:") {
+						a.model.StatusContainer.AddError("azure-error", trimmed)
+						count++
+					}
 				}
 			}
 		}
@@ -3592,10 +3715,15 @@ func (a *App) executeAzureCommand(cmdArgs []string) error {
 		return fmt.Errorf("Azure CLI: %s", azureError)
 	}
 
+	// Sucesso - verificar se há warnings para logar em debug
+	if a.debug && stderrStr != "" {
+		fmt.Printf("⚠️ Warnings (ignorados):\n%s\n", stderrStr)
+	}
+
 	a.model.StatusContainer.AddSuccess("azure-cli", fmt.Sprintf("✅ %s executado com sucesso", operation))
 
 	// Filtrar output JSON para mostrar apenas informações relevantes
-	a.processAzureOutput(string(output))
+	a.processAzureOutput(stdoutStr)
 	return nil
 }
 
