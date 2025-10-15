@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -36,6 +37,14 @@ func CheckForUpdates() (*UpdateInfo, error) {
 	// Buscar última release do GitHub
 	release, err := GetLatestRelease(RepoOwner, RepoName)
 	if err != nil {
+		// Se repositório não existe ou não há releases, considerar que está atualizado
+		if strings.Contains(err.Error(), "repositório não encontrado") {
+			return &UpdateInfo{
+				Available:      false,
+				CurrentVersion: currentVer.String(),
+				LatestVersion:  currentVer.String(),
+			}, nil
+		}
 		return nil, err
 	}
 
