@@ -1600,7 +1600,7 @@ func (a *App) handleEscape() (tea.Model, tea.Cmd) {
 		a.model.EditingHPA = nil
 		a.model.FormFields = make(map[string]string)
 	case models.StateNodeSelection:
-		targetState = models.StateClusterSelection
+		targetState = models.StateNamespaceSelection
 	case models.StateNodeEditing:
 		targetState = models.StateNodeSelection
 		a.model.EditingNodePool = nil
