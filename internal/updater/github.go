@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -34,6 +37,11 @@ func GetLatestRelease(owner, repo string) (*GitHubRelease, error) {
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("User-Agent", "k8s-hpa-manager")
 
+	// Se houver token de acesso (para repos privados)
+	if token := getGitHubToken(); token != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar release: %w", err)
@@ -54,4 +62,24 @@ func GetLatestRelease(owner, repo string) (*GitHubRelease, error) {
 	}
 
 	return &release, nil
+}
+
+// getGitHubToken retorna token de acesso do GitHub (se configurado)
+// Busca em: GITHUB_TOKEN env var ou ~/.k8s-hpa-manager/.github-token
+func getGitHubToken() string {
+	// 1. Tentar variável de ambiente
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		return token
+	}
+
+	// 2. Tentar arquivo ~/.k8s-hpa-manager/.github-token
+	home := os.Getenv("HOME")
+	tokenPath := filepath.Join(home, ".k8s-hpa-manager", ".github-token")
+
+	data, err := os.ReadFile(tokenPath)
+	if err == nil {
+		return strings.TrimSpace(string(data))
+	}
+
+	return ""
 }

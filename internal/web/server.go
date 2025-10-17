@@ -129,6 +129,16 @@ func (s *Server) setupRoutes() {
 	api.GET("/nodepools", nodePoolHandler.List)
 	api.POST("/nodepools/apply-sequential", nodePoolHandler.ApplySequential)
 
+	// CronJobs
+	cronJobHandler := handlers.NewCronJobHandler(s.kubeManager)
+	api.GET("/cronjobs", cronJobHandler.List)
+	api.PUT("/cronjobs/:cluster/:namespace/:name", cronJobHandler.Update)
+
+	// Prometheus Stack
+	prometheusHandler := handlers.NewPrometheusHandler(s.kubeManager)
+	api.GET("/prometheus", prometheusHandler.List)
+	api.PUT("/prometheus/:cluster/:namespace/:type/:name", prometheusHandler.Update)
+
 	// Validation (VPN + Azure CLI)
 	validationHandler := handlers.NewValidationHandler()
 	api.GET("/validate", validationHandler.Validate)

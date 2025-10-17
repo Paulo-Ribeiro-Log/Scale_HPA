@@ -958,7 +958,23 @@
 
             <!-- CronJobs Tab -->
             <div id="cronjobs" class="tab-pane">
-                <div id="cronjobsContainer" class="loading">Selecione um cluster primeiro</div>
+                <div class="split-view">
+                    <!-- CronJob List (50%) -->
+                    <div class="hpa-list-panel">
+                        <div class="panel-title">CronJobs Disponíveis</div>
+                        <div id="cronjobsContainer" class="loading">Selecione um cluster e namespaces primeiro</div>
+                    </div>
+
+                    <!-- CronJob Editor (50%) -->
+                    <div class="hpa-editor-panel">
+                        <div class="panel-title">Detalhes do CronJob</div>
+                        <div id="cronjobEditor">
+                            <div style="text-align: center; color: #999; padding: 40px;">
+                                Selecione um CronJob para ver detalhes
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -2239,35 +2255,192 @@
 
         // Carregar CronJobs
         async function loadCronJobs() {
-            if (!state.selectedCluster) {
+            if (!state.selectedCluster || state.namespaces.length === 0) {
+                const container = document.getElementById('cronjobsContainer');
+                container.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;">Selecione namespaces primeiro</div>';
                 return;
             }
 
             const container = document.getElementById('cronjobsContainer');
-            container.innerHTML = '<div class="loading">Carregando cronjobs...</div>';
+            container.innerHTML = '<div class="loading">Carregando CronJobs...</div>';
 
             try {
-                // TODO: Implementar endpoint de cronjobs no backend
-                // Por enquanto, mostra mensagem informativa
-                container.innerHTML = `
-                    <div style="padding: 40px; text-align: center; color: #666;">
-                        <h3 style="color: #667eea; margin-bottom: 20px;">CronJobs</h3>
-                        <p>Funcionalidade em desenvolvimento.</p>
-                        <p style="margin-top: 10px;">Cluster selecionado: <strong>${state.selectedCluster}</strong></p>
-                        <p style="margin-top: 20px; font-size: 12px; color: #999;">
-                            Endpoint necessário: GET /api/v1/cronjobs?cluster=${state.selectedCluster}
-                        </p>
+                let allCronJobs = [];
+
+                // Carregar CronJobs de todos os namespaces selecionados
+                for (const ns of state.namespaces) {
+                    const response = await apiRequest(`/cronjobs?cluster=${state.selectedCluster}&namespace=${ns.name}`);
+                    const cronJobs = response.data || [];
+
+                    cronJobs.forEach(cj => {
+                        cj.namespace = ns.name;
+                        allCronJobs.push(cj);
+                    });
+                }
+
+                if (allCronJobs.length === 0) {
+                    container.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;">Nenhum CronJob encontrado nos namespaces selecionados</div>';
+                    return;
+                }
+
+                // Renderizar lista agrupada por namespace
+                let html = '';
+                const groupedByNs = {};
+
+                allCronJobs.forEach(cj => {
+                    if (!groupedByNs[cj.namespace]) {
+                        groupedByNs[cj.namespace] = [];
+                    }
+                    groupedByNs[cj.namespace].push(cj);
+                });
+
+                for (const [namespace, cronJobs] of Object.entries(groupedByNs)) {
+                    html += `
+                        <div class="namespace-group">
+                            <div class="namespace-header">${namespace} (${cronJobs.length})</div>
+                            <ul class="hpa-list">
+                    `;
+
+                    cronJobs.forEach(cj => {
+                        const isSuspended = cj.suspend === true;
+                        const statusIcon = isSuspended ? '🔴' : '🟢';
+                        const statusText = isSuspended ? 'Suspenso' : 'Ativo';
+
+                        html += `
+                            <li class="hpa-item" onclick="selectCronJob('${namespace}', '${cj.name}')">
+                                <div class="hpa-item-header">
+                                    <span class="hpa-name">${statusIcon} ${cj.name}</span>
+                                    <span class="hpa-status" style="background: ${isSuspended ? '#d32f2f' : '#4caf50'}">${statusText}</span>
+                                </div>
+                                <div class="hpa-item-details">
+                                    <small>📅 ${cj.schedule_description || cj.schedule}</small>
+                                    ${cj.active_jobs > 0 ? `<small style="margin-left: 10px;">🔵 ${cj.active_jobs} executando</small>` : ''}
+                                </div>
+                            </li>
+                        `;
+                    });
+
+                    html += `
+                            </ul>
+                        </div>
+                    `;
+                }
+
+                container.innerHTML = html;
+
+            } catch (error) {
+                showError(`Erro ao carregar CronJobs: ${error.message}`);
+                container.innerHTML = `<div class="error" style="padding: 20px;">Erro: ${error.message}</div>`;
+            }
+        }
+
+        // Selecionar CronJob para ver detalhes
+        async function selectCronJob(namespace, name) {
+            const editor = document.getElementById('cronjobEditor');
+            editor.innerHTML = '<div class="loading">Carregando detalhes...</div>';
+
+            try {
+                const response = await apiRequest(`/cronjobs?cluster=${state.selectedCluster}&namespace=${namespace}`);
+                const cronJobs = response.data || [];
+                const cronJob = cronJobs.find(cj => cj.name === name);
+
+                if (!cronJob) {
+                    showError('CronJob não encontrado');
+                    return;
+                }
+
+                const isSuspended = cronJob.suspend === true;
+
+                editor.innerHTML = `
+                    <div class="hpa-details">
+                        <h3>${cronJob.name}</h3>
+                        <p style="color: #666; margin: 10px 0;">Namespace: ${namespace}</p>
+
+                        <div class="form-group">
+                            <label>Schedule (Cron):</label>
+                            <input type="text" value="${cronJob.schedule}" disabled>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Descrição:</label>
+                            <input type="text" value="${cronJob.schedule_description || cronJob.schedule}" disabled>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Status Atual:</label>
+                            <input type="text" value="${isSuspended ? '🔴 Suspenso (Desabilitado)' : '🟢 Ativo'}" disabled>
+                        </div>
+
+                        ${cronJob.last_schedule_time ? `
+                        <div class="form-group">
+                            <label>Última Execução:</label>
+                            <input type="text" value="${cronJob.last_schedule_time}" disabled>
+                        </div>
+                        ` : ''}
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Jobs Ativos:</label>
+                                <input type="text" value="${cronJob.active_jobs}" disabled>
+                            </div>
+                            <div class="form-group">
+                                <label>Jobs Bem-sucedidos:</label>
+                                <input type="text" value="${cronJob.successful_jobs}" disabled>
+                            </div>
+                            <div class="form-group">
+                                <label>Jobs Falhados:</label>
+                                <input type="text" value="${cronJob.failed_jobs}" disabled>
+                            </div>
+                        </div>
+
+                        <div style="margin: 25px 0; padding: 15px; background: ${isSuspended ? '#fff3e0' : '#e8f5e9'}; border-radius: 6px; border-left: 4px solid ${isSuspended ? '#ff9800' : '#4caf50'};">
+                            <div style="margin-bottom: 10px;">
+                                <strong>${isSuspended ? '▶️ Habilitar CronJob' : '⏸️ Suspender CronJob'}</strong>
+                            </div>
+                            <p style="margin: 5px 0; font-size: 12px; color: #666;">
+                                ${isSuspended ?
+                                    'CronJob está atualmente suspenso. Clique abaixo para reativá-lo.' :
+                                    'CronJob está ativo. Você pode suspendê-lo temporariamente sem deletar.'}
+                            </p>
+                        </div>
+
+                        <div class="btn-group">
+                            <button onclick="toggleCronJobSuspend('${namespace}', '${name}', ${!isSuspended})"
+                                    style="background: ${isSuspended ? '#4caf50' : '#ff9800'};">
+                                ${isSuspended ? '▶️ Ativar' : '⏸️ Suspender'}
+                            </button>
+                        </div>
                     </div>
                 `;
 
-                // Quando o endpoint estiver pronto:
-                // const response = await apiRequest(`/cronjobs?cluster=${state.selectedCluster}`);
-                // const cronjobs = response.data || [];
-                // Renderizar lista de cronjobs
+            } catch (error) {
+                showError(`Erro ao carregar detalhes: ${error.message}`);
+                editor.innerHTML = `<div class="error" style="padding: 20px;">Erro: ${error.message}</div>`;
+            }
+        }
+
+        // Toggle suspend/resume do CronJob
+        async function toggleCronJobSuspend(namespace, name, suspend) {
+            const action = suspend ? 'suspender' : 'ativar';
+
+            if (!confirm(`Tem certeza que deseja ${action} o CronJob "${name}"?`)) {
+                return;
+            }
+
+            try {
+                const response = await apiRequest(`/cronjobs/${state.selectedCluster}/${namespace}/${name}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ suspend: suspend })
+                });
+
+                showSuccess(`✅ ${response.message}`);
+
+                // Recarregar lista e detalhes
+                await loadCronJobs();
+                await selectCronJob(namespace, name);
 
             } catch (error) {
-                showError(`Erro ao carregar cronjobs: ${error.message}`);
-                container.innerHTML = '<div class="error">Erro ao carregar cronjobs</div>';
+                showError(`❌ Erro ao ${action} CronJob: ${error.message}`);
             }
         }
 
