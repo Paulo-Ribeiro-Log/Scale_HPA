@@ -880,6 +880,7 @@
             <div class="tab" onclick="switchTab('hpas')">⚖️ HPAs</div>
             <div class="tab" onclick="switchTab('nodepools')">🖥️ Node Pools</div>
             <div class="tab" onclick="switchTab('cronjobs')">⏰ CronJobs</div>
+            <div class="tab" onclick="switchTab('prometheus')">📊 Prometheus Stack</div>
         </div>
 
         <!-- Tab Content -->
@@ -976,6 +977,27 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Prometheus Stack Tab -->
+            <div id="prometheus" class="tab-pane">
+                <div class="split-view">
+                    <!-- Prometheus Resources List (50%) -->
+                    <div class="hpa-list-panel">
+                        <div class="panel-title">Recursos do Prometheus Stack</div>
+                        <div id="prometheusContainer" class="loading">Selecione um cluster e namespace primeiro</div>
+                    </div>
+
+                    <!-- Prometheus Resource Editor (50%) -->
+                    <div class="hpa-editor-panel">
+                        <div class="panel-title">Editor de Recursos</div>
+                        <div id="prometheusEditor">
+                            <div style="text-align: center; color: #999; padding: 40px;">
+                                Selecione um recurso para editar
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -993,6 +1015,9 @@
             selectedNodePool: null,
             modifiedNodePools: new Map(), // Map de node pools modificados
             sequentialNodePools: [], // Array com até 2 node pools para execução sequencial [*1, *2]
+            prometheusResources: [], // Recursos do Prometheus Stack
+            selectedPrometheusResource: null,
+            modifiedPrometheusResources: new Map(), // Map de recursos modificados
             charts: {}
         };
 
@@ -2444,6 +2469,260 @@
             }
         }
 
+        // ===========================
+        // PROMETHEUS STACK FUNCTIONS
+        // ===========================
+
+        async function loadPrometheusResources() {
+            if (!state.selectedCluster) {
+                const container = document.getElementById('prometheusContainer');
+                container.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;">Selecione um cluster primeiro</div>';
+                return;
+            }
+
+            const container = document.getElementById('prometheusContainer');
+            container.innerHTML = '<div class="loading">Carregando recursos do Prometheus Stack...</div>';
+
+            try {
+                let allResources = [];
+
+                // Buscar automaticamente em namespaces comuns do Prometheus
+                const prometheusNamespaces = ['monitoring', 'prometheus', 'observability', 'kube-prometheus'];
+
+                for (const nsName of prometheusNamespaces) {
+                    try {
+                        const response = await apiRequest(`/prometheus?cluster=${state.selectedCluster}&namespace=${nsName}`);
+                        const resources = response.data || [];
+
+                        resources.forEach(res => {
+                            res.namespace = nsName;
+                            allResources.push(res);
+                        });
+                    } catch (error) {
+                        // Namespace não existe, continuar
+                        console.log(`Namespace ${nsName} não disponível`);
+                    }
+                }
+
+                state.prometheusResources = allResources;
+
+                if (allResources.length === 0) {
+                    container.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;">Nenhum recurso do Prometheus Stack encontrado</div>';
+                    return;
+                }
+
+                // Renderizar lista agrupada por namespace
+                let html = '';
+                const groupedByNs = {};
+
+                allResources.forEach(res => {
+                    if (!groupedByNs[res.namespace]) {
+                        groupedByNs[res.namespace] = [];
+                    }
+                    groupedByNs[res.namespace].push(res);
+                });
+
+                for (const [namespace, resources] of Object.entries(groupedByNs)) {
+                    html += `
+                        <div class="namespace-group">
+                            <div class="namespace-header">${namespace} (${resources.length})</div>
+                            <ul class="hpa-list">
+                    `;
+
+                    resources.forEach(res => {
+                        const typeIcon = res.type === 'Deployment' ? '🚀' :
+                                       res.type === 'StatefulSet' ? '💾' : '🔄';
+
+                        html += `
+                            <li class="hpa-item" onclick="selectPrometheusResource('${namespace}', '${res.name}', '${res.type}')">
+                                <div class="hpa-item-header">
+                                    <span class="hpa-name">${typeIcon} ${res.name}</span>
+                                    <span class="hpa-status" style="background: #2196f3">${res.type}</span>
+                                </div>
+                                <div class="hpa-item-details">
+                                    <small>Component: ${res.component}</small>
+                                    ${res.replicas > 0 ? `<small style="margin-left: 10px;">Replicas: ${res.replicas}</small>` : ''}
+                                </div>
+                            </li>
+                        `;
+                    });
+
+                    html += `
+                            </ul>
+                        </div>
+                    `;
+                }
+
+                container.innerHTML = html;
+
+            } catch (error) {
+                showError(`Erro ao carregar recursos do Prometheus: ${error.message}`);
+                container.innerHTML = `<div class="error" style="padding: 20px;">Erro: ${error.message}</div>`;
+            }
+        }
+
+        async function selectPrometheusResource(namespace, name, type) {
+            const resource = state.prometheusResources.find(r =>
+                r.namespace === namespace && r.name === name && r.type === type
+            );
+
+            if (!resource) return;
+
+            state.selectedPrometheusResource = resource;
+
+            // Highlight selecionado
+            document.querySelectorAll('.hpa-item').forEach(item => item.classList.remove('selected'));
+            event.target.closest('.hpa-item').classList.add('selected');
+
+            // Renderizar editor
+            renderPrometheusEditor(resource);
+        }
+
+        function renderPrometheusEditor(resource) {
+            const editor = document.getElementById('prometheusEditor');
+
+            const key = `${resource.namespace}/${resource.name}/${resource.type}`;
+            const modified = state.modifiedPrometheusResources.get(key) || { ...resource };
+
+            const html = `
+                <form id="prometheusForm" onsubmit="savePrometheusChanges(event)">
+                    <div class="form-group">
+                        <label>📦 Nome</label>
+                        <input type="text" value="${resource.name}" readonly style="background: #f5f5f5;">
+                    </div>
+
+                    <div class="form-group">
+                        <label>🏷️ Namespace</label>
+                        <input type="text" value="${resource.namespace}" readonly style="background: #f5f5f5;">
+                    </div>
+
+                    <div class="form-group">
+                        <label>📊 Tipo</label>
+                        <input type="text" value="${resource.type}" readonly style="background: #f5f5f5;">
+                    </div>
+
+                    <div class="form-group">
+                        <label>🔧 Componente</label>
+                        <input type="text" value="${resource.component}" readonly style="background: #f5f5f5;">
+                    </div>
+
+                    ${resource.type !== 'DaemonSet' ? `
+                    <div class="form-group">
+                        <label>🔢 Replicas</label>
+                        <input type="number" id="replicas" value="${modified.replicas || resource.replicas}" min="0">
+                    </div>
+                    ` : ''}
+
+                    <h3 style="margin: 25px 0 15px 0; color: #333; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px;">CPU Resources</h3>
+
+                    <div class="form-group">
+                        <label>⚡ CPU Request</label>
+                        <input type="text" id="cpuRequest" value="${modified.current_cpu_request || resource.current_cpu_request || ''}"
+                               placeholder="Ex: 100m, 1, 2">
+                        <small style="color: #666;">Formato: 100m (millicores) ou 1 (cores)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>🚀 CPU Limit</label>
+                        <input type="text" id="cpuLimit" value="${modified.current_cpu_limit || resource.current_cpu_limit || ''}"
+                               placeholder="Ex: 500m, 2">
+                    </div>
+
+                    <h3 style="margin: 25px 0 15px 0; color: #333; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px;">Memory Resources</h3>
+
+                    <div class="form-group">
+                        <label>💾 Memory Request</label>
+                        <input type="text" id="memoryRequest" value="${modified.current_memory_request || resource.current_memory_request || ''}"
+                               placeholder="Ex: 128Mi, 1Gi">
+                        <small style="color: #666;">Formato: 128Mi (megabytes) ou 1Gi (gigabytes)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>📦 Memory Limit</label>
+                        <input type="text" id="memoryLimit" value="${modified.current_memory_limit || resource.current_memory_limit || ''}"
+                               placeholder="Ex: 512Mi, 2Gi">
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" style="background: #1976d2;">💾 Salvar Alterações</button>
+                        <button type="button" onclick="applyPrometheusResource()" style="background: #28a745;">
+                            ✅ Aplicar Este Recurso
+                        </button>
+                    </div>
+                </form>
+            `;
+
+            editor.innerHTML = html;
+        }
+
+        function savePrometheusChanges(event) {
+            event.preventDefault();
+
+            const resource = state.selectedPrometheusResource;
+            const key = `${resource.namespace}/${resource.name}/${resource.type}`;
+
+            const modified = {
+                ...resource,
+                replicas: parseInt(document.getElementById('replicas')?.value || resource.replicas),
+                current_cpu_request: document.getElementById('cpuRequest').value,
+                current_cpu_limit: document.getElementById('cpuLimit').value,
+                current_memory_request: document.getElementById('memoryRequest').value,
+                current_memory_limit: document.getElementById('memoryLimit').value
+            };
+
+            state.modifiedPrometheusResources.set(key, modified);
+            showSuccess(`Alterações salvas para ${resource.name}`);
+        }
+
+        async function applyPrometheusResource() {
+            const resource = state.selectedPrometheusResource;
+            const key = `${resource.namespace}/${resource.name}/${resource.type}`;
+            const modified = state.modifiedPrometheusResources.get(key);
+
+            if (!modified) {
+                showError('Nenhuma alteração para aplicar');
+                return;
+            }
+
+            try {
+                showSuccess(`Aplicando alterações em ${resource.name}...`);
+
+                const typeMap = {
+                    'Deployment': 'deployment',
+                    'StatefulSet': 'statefulset',
+                    'DaemonSet': 'daemonset'
+                };
+
+                const payload = {
+                    cpu_request: modified.current_cpu_request,
+                    memory_request: modified.current_memory_request,
+                    cpu_limit: modified.current_cpu_limit,
+                    memory_limit: modified.current_memory_limit
+                };
+
+                if (resource.type !== 'DaemonSet') {
+                    payload.replicas = modified.replicas;
+                }
+
+                await apiRequest(
+                    `/prometheus/${state.selectedCluster}/${resource.namespace}/${typeMap[resource.type]}/${resource.name}`,
+                    {
+                        method: 'PUT',
+                        body: JSON.stringify(payload)
+                    }
+                );
+
+                showSuccess(`✅ Recurso ${resource.name} aplicado com sucesso!`);
+                state.modifiedPrometheusResources.delete(key);
+
+                // Recarregar lista
+                await loadPrometheusResources();
+
+            } catch (error) {
+                showError(`Erro ao aplicar recurso: ${error.message}`);
+            }
+        }
+
         // Inicializar gráficos
         function initCharts() {
             // CPU Chart - Line
@@ -2649,6 +2928,13 @@
                 pane.classList.remove('active');
             });
             document.getElementById(tabName).classList.add('active');
+
+            // Load data based on tab
+            if (tabName === 'cronjobs') {
+                loadCronJobs();
+            } else if (tabName === 'prometheus') {
+                loadPrometheusResources();
+            }
         }
 
         // Mostrar mensagens

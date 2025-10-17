@@ -45,7 +45,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ **Sistema de Logs Completo** (F3) - visualizador com scroll, copiar, limpar logs
 - ✅ **Navegação ESC corrigida** - Node Pools voltam para Namespaces (origem do Ctrl+N)
 - ✅ **Race condition corrigida** - Mutex RWLock para testes paralelos de cluster (thread-safe)
-- 🚧 **Interface Web POC** - em desenvolvimento (ver Docs/WEB_INTERFACE_DESIGN.md e Docs/WEB_POC_STATUS.md)
+- ✅ **Interface Web POC (90% completa)** - HPAs, Node Pools, CronJobs e Prometheus Stack implementados (ver Docs/README_WEB.md)
 
 ### Tech Stack
 - **Language**: Go 1.23+ (toolchain 1.24.7)
@@ -1117,13 +1117,16 @@ go build -o ./build/k8s-hpa-manager .
 **Features Implementadas:**
 - ✅ Backend REST API (Gin Framework)
 - ✅ Autenticação Bearer Token
-- ✅ Endpoints: Clusters, Namespaces, HPAs, Node Pools
+- ✅ Endpoints: Clusters, Namespaces, HPAs, Node Pools, CronJobs, Prometheus Stack
 - ✅ Sistema de validação Azure/VPN (cache 5min, timeout 5s)
 - ✅ Frontend SPA (HTML/CSS/JS)
 - ✅ Login, Dashboard, Navegação
 - ✅ Edição de HPAs funcional
 - ✅ Grid de Node Pools com cards responsivos
-- 🚧 CronJobs, Rollouts, Sessions (pendente)
+- ✅ **CronJobs Management** - Suspend/Resume com status visual
+- ✅ **Prometheus Stack Management** - Edição de recursos (CPU/Memory) para Deployments, StatefulSets, DaemonSets
+- ✅ **Auto-descoberta de namespaces Prometheus** - Busca automática em `monitoring`, `prometheus`, `observability`, `kube-prometheus`
+- 🚧 Rollouts, Sessions (pendente)
 
 **Arquitetura:**
 - **Zero impacto** no TUI existente

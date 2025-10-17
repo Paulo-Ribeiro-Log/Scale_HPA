@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"k8s-hpa-manager/internal/config"
@@ -71,35 +72,58 @@ func (h *PrometheusHandler) List(c *gin.Context) {
 	// Listar Deployments relacionados ao Prometheus/Grafana
 	deployments, err := client.AppsV1().Deployments(namespace).List(context.Background(), metav1.ListOptions{})
 	if err == nil {
+		fmt.Printf("[DEBUG] Found %d deployments in namespace %s\n", len(deployments.Items), namespace)
 		for _, dep := range deployments.Items {
-			if isPrometheusRelated(dep.Name) {
+			fmt.Printf("[DEBUG] Checking deployment: %s\n", dep.Name)
+			if isPrometheusRelated(dep.Name) || isMonitoringNamespace(namespace) {
+				fmt.Printf("[DEBUG] ✅ Deployment %s IS Prometheus-related (name match or monitoring namespace)\n", dep.Name)
 				resource := extractResourceFromDeployment(&dep)
 				resources = append(resources, resource)
+			} else {
+				fmt.Printf("[DEBUG] ❌ Deployment %s is NOT Prometheus-related\n", dep.Name)
 			}
 		}
+	} else {
+		fmt.Printf("[DEBUG] Error listing deployments: %v\n", err)
 	}
 
 	// Listar StatefulSets relacionados ao Prometheus
 	statefulSets, err := client.AppsV1().StatefulSets(namespace).List(context.Background(), metav1.ListOptions{})
 	if err == nil {
+		fmt.Printf("[DEBUG] Found %d statefulsets in namespace %s\n", len(statefulSets.Items), namespace)
 		for _, sts := range statefulSets.Items {
-			if isPrometheusRelated(sts.Name) {
+			fmt.Printf("[DEBUG] Checking statefulset: %s\n", sts.Name)
+			if isPrometheusRelated(sts.Name) || isMonitoringNamespace(namespace) {
+				fmt.Printf("[DEBUG] ✅ StatefulSet %s IS Prometheus-related (name match or monitoring namespace)\n", sts.Name)
 				resource := extractResourceFromStatefulSet(&sts)
 				resources = append(resources, resource)
+			} else {
+				fmt.Printf("[DEBUG] ❌ StatefulSet %s is NOT Prometheus-related\n", sts.Name)
 			}
 		}
+	} else {
+		fmt.Printf("[DEBUG] Error listing statefulsets: %v\n", err)
 	}
 
 	// Listar DaemonSets relacionados ao Prometheus
 	daemonSets, err := client.AppsV1().DaemonSets(namespace).List(context.Background(), metav1.ListOptions{})
 	if err == nil {
+		fmt.Printf("[DEBUG] Found %d daemonsets in namespace %s\n", len(daemonSets.Items), namespace)
 		for _, ds := range daemonSets.Items {
-			if isPrometheusRelated(ds.Name) {
+			fmt.Printf("[DEBUG] Checking daemonset: %s\n", ds.Name)
+			if isPrometheusRelated(ds.Name) || isMonitoringNamespace(namespace) {
+				fmt.Printf("[DEBUG] ✅ DaemonSet %s IS Prometheus-related (name match or monitoring namespace)\n", ds.Name)
 				resource := extractResourceFromDaemonSet(&ds)
 				resources = append(resources, resource)
+			} else {
+				fmt.Printf("[DEBUG] ❌ DaemonSet %s is NOT Prometheus-related\n", ds.Name)
 			}
 		}
+	} else {
+		fmt.Printf("[DEBUG] Error listing daemonsets: %v\n", err)
 	}
+
+	fmt.Printf("[DEBUG] Total Prometheus resources found: %d\n", len(resources))
 
 	c.JSON(200, gin.H{
 		"success": true,
@@ -183,9 +207,21 @@ func (h *PrometheusHandler) Update(c *gin.Context) {
 // Funções auxiliares
 
 func isPrometheusRelated(name string) bool {
-	keywords := []string{"prometheus", "grafana", "alertmanager", "node-exporter", "kube-state-metrics"}
+	nameLower := strings.ToLower(name)
+	keywords := []string{"prometheus", "grafana", "alertmanager", "node-exporter", "kube-state-metrics", "pushgateway", "blackbox"}
 	for _, keyword := range keywords {
-		if contains(name, keyword) {
+		if strings.Contains(nameLower, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func isMonitoringNamespace(namespace string) bool {
+	namespaceLower := strings.ToLower(namespace)
+	monitoringNamespaces := []string{"monitoring", "prometheus", "observability", "kube-prometheus"}
+	for _, ns := range monitoringNamespaces {
+		if namespaceLower == ns {
 			return true
 		}
 	}
@@ -193,16 +229,7 @@ func isPrometheusRelated(name string) bool {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || findInString(s, substr)))
-}
-
-func findInString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
 func extractResourceFromDeployment(dep *appsv1.Deployment) PrometheusResource {
