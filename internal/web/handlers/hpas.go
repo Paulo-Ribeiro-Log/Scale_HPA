@@ -19,10 +19,10 @@ func NewHPAHandler(km *config.KubeConfigManager) *HPAHandler {
 	return &HPAHandler{kubeManager: km}
 }
 
-// List retorna todos os HPAs de um namespace
+// List retorna todos os HPAs de um namespace ou de todos os namespaces
 func (h *HPAHandler) List(c *gin.Context) {
 	cluster := c.Query("cluster")
-	namespace := c.Query("namespace")
+	namespace := c.Query("namespace") // Opcional
 
 	if cluster == "" {
 		c.JSON(400, gin.H{
@@ -30,17 +30,6 @@ func (h *HPAHandler) List(c *gin.Context) {
 			"error": gin.H{
 				"code":    "MISSING_PARAMETER",
 				"message": "Parameter 'cluster' is required",
-			},
-		})
-		return
-	}
-
-	if namespace == "" {
-		c.JSON(400, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "MISSING_PARAMETER",
-				"message": "Parameter 'namespace' is required",
 			},
 		})
 		return
@@ -61,23 +50,52 @@ func (h *HPAHandler) List(c *gin.Context) {
 
 	kubeClient := kubeclient.NewClient(client, cluster)
 
-	// Listar HPAs (reutilizar código existente)
-	hpas, err := kubeClient.ListHPAs(c.Request.Context(), namespace)
-	if err != nil {
-		c.JSON(500, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "LIST_ERROR",
-				"message": fmt.Sprintf("Failed to list HPAs: %v", err),
-			},
-		})
-		return
+	var allHPAs []models.HPA
+
+	// Se namespace não especificado, listar de TODOS os namespaces
+	if namespace == "" {
+		// Primeiro listar todos os namespaces
+		namespaces, err := kubeClient.ListNamespaces(c.Request.Context(), false)
+		if err != nil {
+			c.JSON(500, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "LIST_ERROR",
+					"message": fmt.Sprintf("Failed to list namespaces: %v", err),
+				},
+			})
+			return
+		}
+
+		// Listar HPAs de cada namespace
+		for _, ns := range namespaces {
+			hpas, err := kubeClient.ListHPAs(c.Request.Context(), ns.Name)
+			if err != nil {
+				// Ignorar erros de namespaces individuais, continuar
+				continue
+			}
+			allHPAs = append(allHPAs, hpas...)
+		}
+	} else {
+		// Listar HPAs de um namespace específico
+		hpas, err := kubeClient.ListHPAs(c.Request.Context(), namespace)
+		if err != nil {
+			c.JSON(500, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "LIST_ERROR",
+					"message": fmt.Sprintf("Failed to list HPAs: %v", err),
+				},
+			})
+			return
+		}
+		allHPAs = hpas
 	}
 
 	c.JSON(200, gin.H{
 		"success": true,
-		"data":    hpas,
-		"count":   len(hpas),
+		"data":    allHPAs,
+		"count":   len(allHPAs),
 	})
 }
 
@@ -143,6 +161,7 @@ func (h *HPAHandler) Update(c *gin.Context) {
 
 	var hpa models.HPA
 	if err := c.ShouldBindJSON(&hpa); err != nil {
+		fmt.Printf("❌ Error parsing JSON: %v\n", err)
 		c.JSON(400, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -153,13 +172,15 @@ func (h *HPAHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Validações básicas
-	if hpa.MinReplicas != nil && *hpa.MinReplicas < 1 {
+	fmt.Printf("📝 Received HPA update: %+v\n", hpa)
+
+	// Validações básicas (permitir minReplicas = 0 para scale-to-zero)
+	if hpa.MinReplicas != nil && *hpa.MinReplicas < 0 {
 		c.JSON(400, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "INVALID_VALUE",
-				"message": "minReplicas must be >= 1",
+				"message": "minReplicas must be >= 0",
 			},
 		})
 		return

@@ -146,17 +146,29 @@ func (s *Server) setupRoutes() {
 
 // setupStatic configura servir arquivos estáticos
 func (s *Server) setupStatic() {
-	// Servir arquivos estáticos do embed
+	// Criar filesystem com prefixo "static/"
 	staticFS, err := fs.Sub(staticFiles, "static")
 	if err != nil {
-		// Se não conseguir carregar do embed, criar handler vazio
 		s.router.GET("/", func(c *gin.Context) {
-			c.HTML(200, "index.html", nil)
+			c.String(500, "Failed to load static files")
 		})
 		return
 	}
 
-	s.router.StaticFS("/assets", http.FS(staticFS))
+	// Servir diretório assets (JS, CSS)
+	assetsFS, err := fs.Sub(staticFS, "assets")
+	if err != nil {
+		s.router.GET("/", func(c *gin.Context) {
+			c.String(500, "Failed to load assets")
+		})
+		return
+	}
+	s.router.StaticFS("/assets", http.FS(assetsFS))
+
+	// Servir arquivos individuais na raiz
+	s.router.StaticFileFS("/favicon.ico", "favicon.ico", http.FS(staticFS))
+	s.router.StaticFileFS("/robots.txt", "robots.txt", http.FS(staticFS))
+	s.router.StaticFileFS("/placeholder.svg", "placeholder.svg", http.FS(staticFS))
 
 	// Rota raiz serve index.html
 	s.router.GET("/", func(c *gin.Context) {
@@ -170,6 +182,17 @@ func (s *Server) setupStatic() {
 
 	// SPA fallback - todas as rotas não-API servem index.html
 	s.router.NoRoute(func(c *gin.Context) {
+		// Não interceptar requisições de assets
+		if len(c.Request.URL.Path) >= 7 && c.Request.URL.Path[:7] == "/assets" {
+			c.String(404, "Asset not found")
+			return
+		}
+		if len(c.Request.URL.Path) >= 4 && c.Request.URL.Path[:4] == "/api" {
+			c.String(404, "API endpoint not found")
+			return
+		}
+
+		// SPA fallback para outras rotas
 		data, err := staticFiles.ReadFile("static/index.html")
 		if err != nil {
 			c.String(404, "Not found")

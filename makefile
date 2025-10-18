@@ -52,7 +52,43 @@ test-coverage:
 	@go test -v -coverprofile=coverage.out ./...
 	@go tool cover -html=coverage.out -o coverage.html
 
+# ============================================================================
+# Frontend Web (React/TypeScript)
+# ============================================================================
+
+.PHONY: web-install
+web-install:
+	@echo "Installing frontend dependencies..."
+	@cd internal/web/frontend && npm install
+
+.PHONY: web-dev
+web-dev:
+	@echo "Starting frontend dev server (Vite)..."
+	@echo "Frontend: http://localhost:5173"
+	@echo "Backend:  http://localhost:8080 (start separately)"
+	@cd internal/web/frontend && npm run dev
+
+.PHONY: web-build
+web-build:
+	@echo "Building frontend for production..."
+	@cd internal/web/frontend && npm run build
+	@echo "✅ Frontend built to internal/web/static/"
+
+.PHONY: web-clean
+web-clean:
+	@echo "Cleaning frontend build..."
+	@rm -rf internal/web/static/*
+	@touch internal/web/static/.gitkeep
+
+# Build completo (Go + Frontend)
+.PHONY: build-web
+build-web: web-build build
+	@echo "✅ Full build complete (Frontend + Backend)"
+
+# ============================================================================
 # Build de teste com layout unificado
+# ============================================================================
+
 .PHONY: build-test
 build-test:
 	@echo "Building k8s-teste (layout test)..."

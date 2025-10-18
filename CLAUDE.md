@@ -1085,54 +1085,239 @@ Since Lipgloss 1.1.0 doesn't include native BorderTitle support, the app impleme
 
 ---
 
-## 🌐 Interface Web (POC)
+## 🌐 Interface Web
 
-### Status: ✅ 85% Completa
+### Status: ✅ 90% Completa - Frontend React Integrado
 
-Uma POC de interface web complementar ao TUI está em desenvolvimento. Ver documentação dedicada:
+Interface web moderna construída com **React + TypeScript + shadcn/ui**, totalmente integrada ao backend Go existente.
 
-**Documentos Principais:**
-- `Docs/README_WEB.md` - Índice e quick start ⭐ **LEIA PRIMEIRO**
-- `Docs/CONTINUE_AQUI.md` - Guia de continuidade
-- `Docs/WEB_POC_STATUS.md` - Status detalhado da implementação (85% completo)
-- `Docs/WEB_INTERFACE_DESIGN.md` - Design completo da arquitetura
-- `Docs/WEB_VALIDATION_SYSTEM.md` - Sistema de validação Azure/VPN
-- `Docs/WEB_NODEPOOLS_IMPLEMENTED.md` - Implementação Node Pools
-- `Docs/RESUMO_SESSAO.md` - Resumo da sessão de desenvolvimento
-- `QUICK_START_WEB.sh` - Script automatizado de teste
-
-**Uso Rápido:**
-```bash
-# Build
-go build -o ./build/k8s-hpa-manager .
-
-# Iniciar modo web
-./build/k8s-hpa-manager web --port 8080
-
-# Acessar
-# Browser: http://localhost:8080
-# Token: poc-token-123
+**Estrutura:**
+```
+internal/web/
+├── frontend/          # React/TypeScript app (NOVO)
+│   ├── src/
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── README.md
+├── static/            # Build output (embedado no Go binary)
+├── handlers/          # Go REST API handlers
+├── middleware/        # Auth, CORS, Logging
+└── server.go         # Gin HTTP server
 ```
 
+**Desenvolvimento:**
+```bash
+# 1. Instalar dependências do frontend
+make web-install
+
+# 2. Iniciar backend Go (terminal 1)
+./build/k8s-hpa-manager web --port 8080
+
+# 3. Iniciar frontend dev server (terminal 2)
+make web-dev
+# Frontend: http://localhost:5173
+# API proxy: /api/* → http://localhost:8080
+```
+
+**Build Produção:**
+```bash
+# Build completo (frontend + backend)
+make build-web
+
+# Ou separado
+make web-build    # Build frontend → internal/web/static/
+make build        # Build Go binary (embeda static/)
+```
+
+**Executar:**
+```bash
+./build/k8s-hpa-manager web --port 8080
+# Acesse: http://localhost:8080
+# Token: poc-token-123 (padrão POC)
+```
+
+**Tech Stack Frontend:**
+- **Framework**: React 18.3 + TypeScript 5.8
+- **Build**: Vite 5.4 (HMR, fast builds)
+- **Styling**: Tailwind CSS 3.4
+- **UI**: shadcn/ui (Radix UI primitives)
+- **State**: React Query (TanStack)
+- **Routing**: React Router DOM
+- **Icons**: Lucide React
+- **Charts**: Recharts
+
 **Features Implementadas:**
-- ✅ Backend REST API (Gin Framework)
-- ✅ Autenticação Bearer Token
-- ✅ Endpoints: Clusters, Namespaces, HPAs, Node Pools, CronJobs, Prometheus Stack
-- ✅ Sistema de validação Azure/VPN (cache 5min, timeout 5s)
-- ✅ Frontend SPA (HTML/CSS/JS)
-- ✅ Login, Dashboard, Navegação
-- ✅ Edição de HPAs funcional
-- ✅ Grid de Node Pools com cards responsivos
-- ✅ **CronJobs Management** - Suspend/Resume com status visual
-- ✅ **Prometheus Stack Management** - Edição de recursos (CPU/Memory) para Deployments, StatefulSets, DaemonSets
-- ✅ **Auto-descoberta de namespaces Prometheus** - Busca automática em `monitoring`, `prometheus`, `observability`, `kube-prometheus`
-- 🚧 Rollouts, Sessions (pendente)
+- ✅ **Backend REST API** (Gin Framework)
+- ✅ **Autenticação** Bearer Token
+- ✅ **Endpoints**: Clusters, Namespaces, HPAs, Node Pools, CronJobs, Prometheus
+- ✅ **Validação** Azure/VPN (cache 5min, timeout 5s)
+- ✅ **Frontend React** moderno com shadcn/ui
+- ✅ **Dashboard** com estatísticas e gráficos
+- ✅ **HPA Management** - CRUD completo com edição de recursos
+- ✅ **Node Pools** - Grid responsivo
+- ✅ **CronJobs** - Suspend/Resume
+- ✅ **Prometheus Stack** - Resource management
+- ✅ **Modal de Confirmação** - Preview de alterações e progress bars de rollout
+- ✅ **Deployment Resource Updates** - CPU/Memory Request/Limit aplicados ao deployment
+- ✅ **Dev Server** com proxy API
+- ✅ **Embed no Go** binary (produção)
+- 🚧 Sessões, Rollouts (pendente)
 
 **Arquitetura:**
 - **Zero impacto** no TUI existente
-- Código isolado em `internal/web/`
-- Reutiliza toda lógica K8s/Azure
-- Modo exclusivo: TUI **ou** Web
+- **Modo exclusivo**: TUI **ou** Web (não simultâneo)
+- **Reutilização**: Toda lógica K8s/Azure compartilhada
+- **Build único**: Frontend embedado no binário Go
+
+### 🐛 Correções Críticas da Interface Web (Outubro 2025)
+
+#### 1. **Fix: Modal Enviando Objeto HPA Parcial (RESOLVIDO)**
+
+**Problema:** Modal de confirmação enviava apenas as alterações (delta) ao backend, mas o handler esperava objeto HPA completo via `c.ShouldBindJSON(&hpa)`. Isso causava:
+- Campos não editados ficavam vazios/null no backend
+- `MaxReplicas:0` falhava na validação (`maxReplicas must be >= 1`)
+- Alterações de Memory Limit falhavam mesmo sendo válidas
+
+**Sintoma:**
+```go
+📝 Received HPA update: {Name: Namespace: Cluster: MinReplicas:<nil> MaxReplicas:0 ... TargetMemoryLimit:385Mi ...}
+❌ Error: maxReplicas must be >= 1
+```
+
+**Causa Raiz:**
+```typescript
+// ❌ ANTES - Enviava apenas alterações
+const updates: any = {};
+if (current.min_replicas !== original.min_replicas) {
+  updates.min_replicas = current.min_replicas;
+}
+// ... apenas campos modificados ...
+
+await apiClient.updateHPA(cluster, namespace, name, updates);
+// Backend recebia: {target_memory_limit: "385Mi"} ❌
+```
+
+**Solução Implementada:**
+```typescript
+// ✅ DEPOIS - Envia HPA completo
+await apiClient.updateHPA(
+  current.cluster,
+  current.namespace,
+  current.name,
+  current  // Objeto HPA completo com todos os campos
+);
+// Backend recebia: {name: "nginx", namespace: "ingress-nginx", min_replicas: 2, max_replicas: 10, target_memory_limit: "385Mi", ...} ✅
+```
+
+**Arquivo Modificado:**
+- `internal/web/frontend/src/components/ApplyAllModal.tsx:173-180`
+
+**Resultado:** Todas as alterações de HPA (replicas, targets, resources) agora aplicam com sucesso! ✅
+
+#### 2. **Fix: Page Reload Perdendo Estado da Aplicação (RESOLVIDO)**
+
+**Problema:** Após aplicar alterações, `window.location.reload()` era executado, causando:
+- Perda do cluster selecionado
+- Retorno à tela de login
+- Perda de contexto de navegação
+
+**Solução:**
+```typescript
+// ❌ ANTES
+const { hpas, loading, updateHPA } = useHPAs(selectedCluster);
+window.location.reload(); // Perdia todo o estado
+
+// ✅ DEPOIS
+const { hpas, loading, refetch: refetchHPAs } = useHPAs(selectedCluster);
+refetchHPAs(); // Atualiza apenas HPAs, preserva estado
+```
+
+**Arquivos Modificados:**
+- `internal/web/frontend/src/pages/Index.tsx:42,269`
+- `internal/web/frontend/src/components/ApplyAllModal.tsx:209,270`
+
+#### 3. **Fix: Modal Mostrando Campos Não Alterados (RESOLVIDO)**
+
+**Problema:** Modal exibia `"Target Memory (%): — → —"` para campos que não foram editados (null → null).
+
+**Solução:**
+```typescript
+const renderChange = (label: string, before: any, after: any) => {
+  // Normalizar null/undefined
+  const normalizedBefore = before ?? null;
+  const normalizedAfter = after ?? null;
+
+  // Não exibir se ambos são null (sem alteração real)
+  if (normalizedBefore === normalizedAfter) return null;
+
+  // Não exibir se ambos são vazios (— → —)
+  if ((normalizedBefore === null || normalizedBefore === "") &&
+      (normalizedAfter === null || normalizedAfter === "")) {
+    return null;
+  }
+
+  return (/* ... renderiza apenas mudanças reais ... */);
+};
+```
+
+**Arquivo Modificado:**
+- `internal/web/frontend/src/components/ApplyAllModal.tsx:221-243`
+
+#### 4. **Feature: Backend Deployment Resource Updates (IMPLEMENTADO)**
+
+**Funcionalidade:** Backend agora atualiza CPU/Memory Request/Limit no deployment associado ao HPA.
+
+**Implementação:**
+```go
+// Atualizar resources do deployment se fornecidos
+if hpa.TargetCPURequest != "" || hpa.TargetCPULimit != "" ||
+   hpa.TargetMemoryRequest != "" || hpa.TargetMemoryLimit != "" {
+
+    deployment, err := c.clientset.AppsV1().Deployments(hpa.Namespace).Get(...)
+    if err != nil {
+        return fmt.Errorf("failed to get deployment: %w", err)
+    }
+
+    container := &deployment.Spec.Template.Spec.Containers[0]
+
+    // Parse e aplicar quantities (100m, 256Mi, 1Gi)
+    if hpa.TargetCPURequest != "" {
+        cpuRequest, err := resource.ParseQuantity(hpa.TargetCPURequest)
+        container.Resources.Requests["cpu"] = cpuRequest
+    }
+    // ... CPU Limit, Memory Request, Memory Limit ...
+
+    // Aplicar ao cluster
+    _, err = c.clientset.AppsV1().Deployments(hpa.Namespace).Update(ctx, deployment, ...)
+}
+```
+
+**Arquivo Modificado:**
+- `internal/kubernetes/client.go:188-253`
+
+**Validação:**
+- MinReplicas relaxada: `>= 0` (permite scale-to-zero)
+- Debug logging adicionado em `hpas.go:164,175`
+
+#### 5. **Feature: ApplyAllModal com Progress Tracking (IMPLEMENTADO)**
+
+**Funcionalidades:**
+- ✅ **Preview Mode** - Exibe before → after de todas alterações
+- ✅ **Progress Mode** - Mostra aplicação sequencial com progress bars
+- ✅ **Rollout Simulation** - Progress bars animadas (0-100%) para Deployment/DaemonSet/StatefulSet
+- ✅ **Error Handling** - Erro individual por HPA sem bloquear outros
+- ✅ **Auto-close** - Fecha modal em 2s após sucesso total
+
+**Arquivos Criados/Modificados:**
+- `internal/web/frontend/src/components/ApplyAllModal.tsx` (NOVO - 460 linhas)
+- `internal/web/frontend/src/components/HPAEditor.tsx` (callback pattern)
+- `internal/web/frontend/src/pages/Index.tsx` (integração modal)
+- `internal/web/frontend/src/lib/api/types.ts` (tipos expandidos)
+
+**Documentação:**
+- `internal/web/frontend/README.md` - Frontend docs
+- `Docs/README_WEB.md` - Web interface overview
+- `Docs/WEB_INTERFACE_DESIGN.md` - Arquitetura completa
 
 ---
 

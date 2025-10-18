@@ -185,6 +185,73 @@ func (c *Client) UpdateHPA(ctx context.Context, hpa models.HPA) error {
 		return fmt.Errorf("failed to update HPA %s/%s in cluster %s: %w", hpa.Namespace, hpa.Name, c.cluster, err)
 	}
 
+	// Atualizar resources do deployment se fornecidos
+	if hpa.TargetCPURequest != "" || hpa.TargetCPULimit != "" ||
+	   hpa.TargetMemoryRequest != "" || hpa.TargetMemoryLimit != "" {
+		// Obter o deployment target do HPA
+		if currentHPA.Spec.ScaleTargetRef.Kind == "Deployment" {
+			deploymentName := currentHPA.Spec.ScaleTargetRef.Name
+			deployment, err := c.clientset.AppsV1().Deployments(hpa.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to get deployment %s/%s: %w", hpa.Namespace, deploymentName, err)
+			}
+
+			// Atualizar resources do primeiro container (assume que é o principal)
+			if len(deployment.Spec.Template.Spec.Containers) > 0 {
+				container := &deployment.Spec.Template.Spec.Containers[0]
+
+				if container.Resources.Requests == nil {
+					container.Resources.Requests = corev1.ResourceList{}
+				}
+				if container.Resources.Limits == nil {
+					container.Resources.Limits = corev1.ResourceList{}
+				}
+
+				// CPU Request
+				if hpa.TargetCPURequest != "" {
+					cpuRequest, err := resource.ParseQuantity(hpa.TargetCPURequest)
+					if err != nil {
+						return fmt.Errorf("invalid CPU request value %s: %w", hpa.TargetCPURequest, err)
+					}
+					container.Resources.Requests["cpu"] = cpuRequest
+				}
+
+				// CPU Limit
+				if hpa.TargetCPULimit != "" {
+					cpuLimit, err := resource.ParseQuantity(hpa.TargetCPULimit)
+					if err != nil {
+						return fmt.Errorf("invalid CPU limit value %s: %w", hpa.TargetCPULimit, err)
+					}
+					container.Resources.Limits["cpu"] = cpuLimit
+				}
+
+				// Memory Request
+				if hpa.TargetMemoryRequest != "" {
+					memRequest, err := resource.ParseQuantity(hpa.TargetMemoryRequest)
+					if err != nil {
+						return fmt.Errorf("invalid memory request value %s: %w", hpa.TargetMemoryRequest, err)
+					}
+					container.Resources.Requests["memory"] = memRequest
+				}
+
+				// Memory Limit
+				if hpa.TargetMemoryLimit != "" {
+					memLimit, err := resource.ParseQuantity(hpa.TargetMemoryLimit)
+					if err != nil {
+						return fmt.Errorf("invalid memory limit value %s: %w", hpa.TargetMemoryLimit, err)
+					}
+					container.Resources.Limits["memory"] = memLimit
+				}
+
+				// Atualizar deployment
+				_, err = c.clientset.AppsV1().Deployments(hpa.Namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+				if err != nil {
+					return fmt.Errorf("failed to update deployment resources %s/%s: %w", hpa.Namespace, deploymentName, err)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
