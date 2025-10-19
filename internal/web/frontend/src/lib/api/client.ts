@@ -2,6 +2,7 @@
 
 import type {
   Cluster,
+  ClusterInfo,
   Namespace,
   HPA,
   NodePool,
@@ -10,6 +11,9 @@ import type {
   ValidationStatus,
   APIError,
   APIResponse,
+  Session,
+  SessionFolder,
+  SessionTemplate,
 } from "./types";
 
 const API_BASE_URL = "/api/v1";
@@ -70,6 +74,19 @@ class APIClient {
     return this.request(`/clusters/${encodeURIComponent(clusterName)}/test`);
   }
 
+  async switchContext(context: string): Promise<{ success: boolean; message: string }> {
+    return this.request("/clusters/switch-context", {
+      method: "POST",
+      body: JSON.stringify({ context }),
+    });
+  }
+
+  async getClusterInfo(cluster?: string): Promise<ClusterInfo> {
+    const url = cluster ? `/clusters/info?cluster=${encodeURIComponent(cluster)}` : '/clusters/info';
+    const response = await this.request(url, { method: 'GET' }) as { success: boolean; data: ClusterInfo };
+    return response.data;
+  }
+
   // Namespaces
   async getNamespaces(cluster?: string): Promise<Namespace[]> {
     const query = cluster ? `?cluster=${encodeURIComponent(cluster)}` : "";
@@ -126,6 +143,28 @@ class APIClient {
       `/nodepools${query}`
     );
     return response.data || [];
+  }
+
+  async updateNodePool(
+    cluster: string,
+    resourceGroup: string,
+    name: string,
+    updates: {
+      node_count?: number;
+      min_node_count?: number;
+      max_node_count?: number;
+      autoscaling_enabled?: boolean;
+    }
+  ): Promise<NodePool> {
+    return this.request(
+      `/nodepools/${encodeURIComponent(cluster)}/${encodeURIComponent(
+        resourceGroup
+      )}/${encodeURIComponent(name)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      }
+    );
   }
 
   async applyNodePoolsSequential(
@@ -199,6 +238,73 @@ class APIClient {
         body: JSON.stringify(resource),
       }
     );
+  }
+
+  // Sessions
+  async getSessions(): Promise<Session[]> {
+    const response = await this.request<{ sessions: Session[]; count: number }>(
+      "/sessions"
+    );
+    return response.sessions;
+  }
+
+  async getSessionFolders(): Promise<SessionFolder[]> {
+    const response = await this.request<{ folders: SessionFolder[] }>(
+      "/sessions/folders"
+    );
+    return response.folders;
+  }
+
+  async getSessionsInFolder(folder: string): Promise<Session[]> {
+    const response = await this.request<{ sessions: Session[]; count: number }>(
+      `/sessions/folders/${folder}`
+    );
+    return response.sessions;
+  }
+
+  async getSession(name: string, folder?: string): Promise<Session> {
+    const params = folder ? `?folder=${encodeURIComponent(folder)}` : "";
+    return this.request<Session>(
+      `/sessions/${encodeURIComponent(name)}${params}`
+    );
+  }
+
+  async saveSession(sessionData: {
+    name: string;
+    folder: string;
+    description?: string;
+    template: string;
+    changes: any[];
+    node_pool_changes: any[];
+  }): Promise<{ message: string; session_name: string; folder: string }> {
+    return this.request<{
+      message: string;
+      session_name: string;
+      folder: string;
+    }>("/sessions", {
+      method: "POST",
+      body: JSON.stringify(sessionData),
+    });
+  }
+
+  async deleteSession(
+    name: string,
+    folder?: string
+  ): Promise<{ message: string; session_name: string }> {
+    const params = folder ? `?folder=${encodeURIComponent(folder)}` : "";
+    return this.request<{ message: string; session_name: string }>(
+      `/sessions/${encodeURIComponent(name)}${params}`,
+      {
+        method: "DELETE",
+      }
+    );
+  }
+
+  async getSessionTemplates(): Promise<SessionTemplate[]> {
+    const response = await this.request<{ templates: SessionTemplate[] }>(
+      "/sessions/templates"
+    );
+    return response.templates;
   }
 
   // Validation (VPN + Azure CLI)

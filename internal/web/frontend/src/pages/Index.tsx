@@ -7,6 +7,13 @@ import { SplitView } from "@/components/SplitView";
 import { HPAListItem } from "@/components/HPAListItem";
 import { HPAEditor } from "@/components/HPAEditor";
 import { ApplyAllModal } from "@/components/ApplyAllModal";
+import { NodePoolListItem } from "@/components/NodePoolListItem";
+import { NodePoolEditor } from "@/components/NodePoolEditor";
+import { NodePoolApplyModal } from "@/components/NodePoolApplyModal";
+import { SaveSessionModal } from "@/components/SaveSessionModal";
+import { LoadSessionModal } from "@/components/LoadSessionModal";
+import { CronJobsPage } from "./CronJobsPage";
+import { PrometheusPage } from "./PrometheusPage";
 import {
   LayoutDashboard,
   Scale,
@@ -18,8 +25,9 @@ import {
   Database
 } from "lucide-react";
 import { useClusters, useNamespaces, useHPAs, useNodePools } from "@/hooks/useAPI";
-import type { HPA } from "@/lib/api/types";
+import type { HPA, NodePool } from "@/lib/api/types";
 import { useStaging } from "@/contexts/StagingContext";
+import { apiClient } from "@/lib/api/client";
 import { toast } from "sonner";
 
 interface IndexProps {
@@ -29,9 +37,16 @@ interface IndexProps {
 const Index = ({ onLogout }: IndexProps) => {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [selectedCluster, setSelectedCluster] = useState("");
+  const [selectedNamespace, setSelectedNamespace] = useState("");
   const [selectedHPA, setSelectedHPA] = useState<HPA | null>(null);
+  const [selectedNodePool, setSelectedNodePool] = useState<NodePool | null>(null);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [hpasToApply, setHpasToApply] = useState<Array<{ key: string; current: HPA; original: HPA }>>([]);
+  const [showNodePoolApplyModal, setShowNodePoolApplyModal] = useState(false);
+  const [nodePoolsToApply, setNodePoolsToApply] = useState<Array<{ key: string; current: NodePool; original: NodePool }>>([]);
+  const [showSaveSessionModal, setShowSaveSessionModal] = useState(false);
+  const [showLoadSessionModal, setShowLoadSessionModal] = useState(false);
+  const [isContextSwitching, setIsContextSwitching] = useState(false);
 
   // Staging context
   const staging = useStaging();
@@ -39,7 +54,7 @@ const Index = ({ onLogout }: IndexProps) => {
   // API Hooks
   const { clusters, loading: clustersLoading } = useClusters();
   const { namespaces, loading: namespacesLoading } = useNamespaces(selectedCluster);
-  const { hpas, loading: hpasLoading, refetch: refetchHPAs } = useHPAs(selectedCluster);
+  const { hpas, loading: hpasLoading, refetch: refetchHPAs } = useHPAs(selectedCluster, selectedNamespace);
   const { nodePools, loading: nodePoolsLoading } = useNodePools(selectedCluster);
 
   // Auto-select first cluster (using context instead of name)
@@ -48,6 +63,51 @@ const Index = ({ onLogout }: IndexProps) => {
       setSelectedCluster(clusters[0].context);
     }
   }, [clusters, selectedCluster]);
+
+  // 🔧 FIX: Handler para mudança de cluster com switch de contexto
+  const handleClusterChange = async (newCluster: string) => {
+    if (newCluster === selectedCluster) return;
+
+    console.log(`[ClusterSwitch] Switching from ${selectedCluster} to ${newCluster}`);
+    setIsContextSwitching(true);
+
+    try {
+      // 1. Chamar endpoint de switch context no backend
+      await apiClient.switchContext(newCluster);
+      console.log(`[ClusterSwitch] Context switched successfully to ${newCluster}`);
+      
+      // 2. Atualizar estado do frontend
+      setSelectedCluster(newCluster);
+      setSelectedNamespace(""); // Reset namespace selection
+      setSelectedHPA(null); // Reset HPA selection  
+      setSelectedNodePool(null); // Reset NodePool selection
+      
+      // 3. Mostrar toast de sucesso
+      toast.success(`Contexto alterado para: ${newCluster}`);
+      
+    } catch (error) {
+      console.error(`[ClusterSwitch] Error switching context:`, error);
+      toast.error(`Erro ao alterar contexto: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+      
+      // Não alterar o cluster selecionado se houve erro
+      return;
+    } finally {
+      setIsContextSwitching(false);
+    }
+  };
+
+  // Auto-select first namespace for CronJobs and Prometheus
+  useEffect(() => {
+    if (namespaces.length > 0 && !selectedNamespace) {
+      // Filter out system namespaces and pick first non-system one
+      const nonSystemNamespaces = namespaces.filter(ns => !ns.isSystem);
+      if (nonSystemNamespaces.length > 0) {
+        setSelectedNamespace(nonSystemNamespaces[0].name);
+      } else if (namespaces.length > 0) {
+        setSelectedNamespace(namespaces[0].name);
+      }
+    }
+  }, [namespaces, selectedNamespace]);
 
   // Calculate stats
   const stats = {
@@ -75,7 +135,7 @@ const Index = ({ onLogout }: IndexProps) => {
   const renderTabContent = () => {
     switch (activeTab) {
       case "dashboard":
-        return <DashboardCharts />;
+        return <DashboardCharts selectedCluster={selectedCluster} />;
       
       case "hpas":
         return (
@@ -97,14 +157,11 @@ const Index = ({ onLogout }: IndexProps) => {
                   {hpas.map((hpa) => (
                     <HPAListItem
                       key={`${hpa.cluster}-${hpa.namespace}-${hpa.name}`}
-                      id={`${hpa.cluster}-${hpa.namespace}-${hpa.name}`}
                       name={hpa.name}
                       namespace={hpa.namespace}
                       currentReplicas={hpa.current_replicas ?? 0}
                       minReplicas={hpa.min_replicas ?? 0}
                       maxReplicas={hpa.max_replicas ?? 1}
-                      targetCPU={hpa.target_cpu ?? undefined}
-                      targetMemory={hpa.target_memory ?? undefined}
                       isSelected={
                         selectedHPA?.name === hpa.name &&
                         selectedHPA?.namespace === hpa.namespace
@@ -136,65 +193,101 @@ const Index = ({ onLogout }: IndexProps) => {
           <SplitView
             leftPanel={{
               title: "Available Node Pools",
-              content: (
+              content: nodePoolsLoading ? (
                 <div className="flex items-center justify-center h-64 text-muted-foreground">
-                  Select a cluster to view node pools
+                  Loading Node Pools...
+                </div>
+              ) : nodePools.length === 0 ? (
+                <div className="flex items-center justify-center h-64 text-muted-foreground">
+                  {selectedCluster
+                    ? "No node pools found in this cluster"
+                    : "Select a cluster to view node pools"}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {nodePools.map((pool) => (
+                    <NodePoolListItem
+                      key={`${pool.cluster_name}-${pool.name}`}
+                      nodePool={pool}
+                      isSelected={
+                        selectedNodePool?.name === pool.name &&
+                        selectedNodePool?.cluster_name === pool.cluster_name
+                      }
+                      onClick={() => setSelectedNodePool(pool)}
+                    />
+                  ))}
                 </div>
               ),
             }}
             rightPanel={{
               title: "Node Pool Editor",
-              content: (
-                <div className="flex items-center justify-center h-64 text-muted-foreground">
-                  Select a node pool to edit
-                </div>
-              ),
+              content: <NodePoolEditor nodePool={selectedNodePool} />,
             }}
           />
         );
       
       case "cronjobs":
         return (
-          <SplitView
-            leftPanel={{
-              title: "Available CronJobs",
-              content: (
-                <div className="flex items-center justify-center h-64 text-muted-foreground">
-                  Select a cluster to view cronjobs
-                </div>
-              ),
-            }}
-            rightPanel={{
-              title: "CronJob Details",
-              content: (
-                <div className="flex items-center justify-center h-64 text-muted-foreground">
-                  Select a cronjob to view details
-                </div>
-              ),
-            }}
-          />
+          <div className="flex flex-col h-full">
+            {/* Namespace selector for CronJobs */}
+            <div className="flex items-center gap-4 p-4 border-b">
+              <label htmlFor="namespace-select" className="text-sm font-medium">
+                Namespace:
+              </label>
+              <select
+                id="namespace-select"
+                value={selectedNamespace}
+                onChange={(e) => setSelectedNamespace(e.target.value)}
+                className="px-3 py-1 border rounded-md text-sm"
+              >
+                <option value="">Selecione um namespace</option>
+                {namespaces.map((ns) => (
+                  <option key={ns.name} value={ns.name}>
+                    {ns.name} {ns.isSystem ? "(system)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="flex-1 overflow-auto p-4">
+              <CronJobsPage 
+                selectedCluster={selectedCluster} 
+                selectedNamespace={selectedNamespace} 
+              />
+            </div>
+          </div>
         );
       
       case "prometheus":
         return (
-          <SplitView
-            leftPanel={{
-              title: "Prometheus Resources",
-              content: (
-                <div className="flex items-center justify-center h-64 text-muted-foreground">
-                  Select a cluster to view Prometheus resources
-                </div>
-              ),
-            }}
-            rightPanel={{
-              title: "Resource Editor",
-              content: (
-                <div className="flex items-center justify-center h-64 text-muted-foreground">
-                  Select a resource to edit
-                </div>
-              ),
-            }}
-          />
+          <div className="flex flex-col h-full">
+            {/* Namespace selector for Prometheus */}
+            <div className="flex items-center gap-4 p-4 border-b">
+              <label htmlFor="prometheus-namespace-select" className="text-sm font-medium">
+                Namespace:
+              </label>
+              <select
+                id="prometheus-namespace-select"
+                value={selectedNamespace}
+                onChange={(e) => setSelectedNamespace(e.target.value)}
+                className="px-3 py-1 border rounded-md text-sm"
+              >
+                <option value="">Selecione um namespace</option>
+                {namespaces.map((ns) => (
+                  <option key={ns.name} value={ns.name}>
+                    {ns.name} {ns.isSystem ? "(system)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="flex-1 overflow-auto p-4">
+              <PrometheusPage 
+                selectedCluster={selectedCluster} 
+                selectedNamespace={selectedNamespace} 
+              />
+            </div>
+          </div>
         );
       
       default:
@@ -206,23 +299,46 @@ const Index = ({ onLogout }: IndexProps) => {
     <div className="flex flex-col h-screen bg-background overflow-hidden">
       <Header
         selectedCluster={selectedCluster}
-        onClusterChange={setSelectedCluster}
+        onClusterChange={handleClusterChange}
         clusters={clusters.map((c) => c.context)}
-        modifiedCount={staging.count}
+        modifiedCount={staging.getChangesCount().total}
         onApplyAll={() => {
-          if (staging.count === 0) {
+          const changesCount = staging.getChangesCount();
+          const totalChanges = changesCount.total;
+
+          if (totalChanges === 0) {
             toast.error("Nenhuma alteração pendente");
             return;
           }
-          // Abrir modal com todas as alterações
-          const allModified = staging.getAll().map(item => ({
-            key: item.key,
-            current: item.data.current,
-            original: item.data.original,
-          }));
-          setHpasToApply(allModified);
-          setShowApplyModal(true);
+
+          // HPAs
+          if (changesCount.hpas > 0) {
+            const modifiedHPAs = staging.stagedHPAs
+              .filter(hpa => hpa.isModified)
+              .map(hpa => ({
+                key: `${hpa.cluster}/${hpa.namespace}/${hpa.name}`,
+                current: hpa,
+                original: { ...hpa, ...hpa.originalValues } as HPA,
+              }));
+            setHpasToApply(modifiedHPAs);
+            setShowApplyModal(true);
+          }
+
+          // Node Pools
+          if (changesCount.nodePools > 0) {
+            const modifiedNodePools = staging.stagedNodePools
+              .filter(np => np.isModified)
+              .map(np => ({
+                key: `${np.cluster_name}/${np.name}`,
+                current: np,
+                original: { ...np, ...np.originalValues } as NodePool,
+              }));
+            setNodePoolsToApply(modifiedNodePools);
+            setShowNodePoolApplyModal(true);
+          }
         }}
+        onSaveSession={() => setShowSaveSessionModal(true)}
+        onLoadSession={() => setShowLoadSessionModal(true)}
         userInfo="admin@k8s.local"
         onLogout={onLogout || (() => console.log("Logout"))}
       />
@@ -260,7 +376,7 @@ const Index = ({ onLogout }: IndexProps) => {
         {renderTabContent()}
       </div>
 
-      {/* Modal de Confirmação */}
+      {/* Modal de Confirmação - HPAs */}
       <ApplyAllModal
         open={showApplyModal}
         onOpenChange={setShowApplyModal}
@@ -271,7 +387,42 @@ const Index = ({ onLogout }: IndexProps) => {
         }}
         onClear={() => {
           // Limpar staging area
-          staging.clear();
+          staging.clearStaging();
+        }}
+      />
+
+      {/* Modal de Confirmação - Node Pools */}
+      <NodePoolApplyModal
+        open={showNodePoolApplyModal}
+        onOpenChange={setShowNodePoolApplyModal}
+        modifiedNodePools={nodePoolsToApply}
+        onApplied={() => {
+          // Refresh node pools após aplicação
+          window.location.reload();
+        }}
+        onClear={() => {
+          // Limpar staging area
+          staging.clearStaging();
+        }}
+      />
+
+      {/* Modal de Salvar Sessão */}
+      <SaveSessionModal
+        open={showSaveSessionModal}
+        onOpenChange={setShowSaveSessionModal}
+        onSuccess={() => {
+          // Opcional: mostrar toast de sucesso
+          console.log("Sessão salva com sucesso!");
+        }}
+      />
+
+      {/* Modal de Carregar Sessão */}
+      <LoadSessionModal
+        open={showLoadSessionModal}
+        onOpenChange={setShowLoadSessionModal}
+        onSessionLoaded={() => {
+          // Opcional: mostrar toast de sessão carregada
+          console.log("Sessão carregada com sucesso!");
         }}
       />
     </div>

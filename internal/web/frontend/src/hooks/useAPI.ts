@@ -10,6 +10,7 @@ import type {
   CronJob,
   PrometheusResource,
 } from "@/lib/api/types";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 export function useClusters() {
   const [clusters, setClusters] = useState<Cluster[]>([]);
@@ -119,16 +120,20 @@ export function useNodePools(cluster?: string) {
 
   const fetchNodePools = async () => {
     if (!cluster) {
+      console.log('[useNodePools] No cluster selected, clearing node pools');
       setNodePools([]);
       return;
     }
 
+    console.log('[useNodePools] Fetching node pools for cluster:', cluster);
     try {
       setLoading(true);
       setError(null);
       const data = await apiClient.getNodePools(cluster);
+      console.log('[useNodePools] Received data:', data);
       setNodePools(data);
     } catch (err) {
+      console.error('[useNodePools] Error fetching node pools:', err);
       setError(
         err instanceof Error ? err.message : "Failed to fetch node pools"
       );
@@ -158,7 +163,72 @@ export function useNodePools(cluster?: string) {
   };
 }
 
+// CronJobs hooks
 export function useCronJobs(cluster?: string, namespace?: string) {
+  return useQuery({
+    queryKey: ['cronjobs', cluster, namespace],
+    queryFn: () => apiClient.getCronJobs(cluster, namespace),
+    enabled: !!cluster && !!namespace,
+    staleTime: 30000,
+  });
+}
+
+export function useUpdateCronJob() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: ({ cluster, namespace, name, data }: {
+      cluster: string;
+      namespace: string;
+      name: string;
+      data: { suspend: boolean };
+    }) => apiClient.updateCronJob(cluster, namespace, name, data),
+    onSuccess: (data, variables) => {
+      // Invalidar cache dos CronJobs
+      queryClient.invalidateQueries({ 
+        queryKey: ['cronjobs', variables.cluster, variables.namespace] 
+      });
+    },
+  });
+}
+
+// Prometheus hooks
+export function usePrometheusResources(cluster?: string, namespace?: string) {
+  return useQuery({
+    queryKey: ['prometheus', cluster, namespace],
+    queryFn: () => apiClient.getPrometheusResources(cluster, namespace),
+    enabled: !!cluster && !!namespace,
+    staleTime: 30000,
+  });
+}
+
+export function useUpdatePrometheusResource() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: ({ cluster, namespace, type, name, data }: {
+      cluster: string;
+      namespace: string;
+      type: string;
+      name: string;
+      data: {
+        cpu_request: string;
+        memory_request: string;
+        cpu_limit: string;
+        memory_limit: string;
+        replicas?: number;
+      };
+    }) => apiClient.updatePrometheusResource(cluster, namespace, type, name, data),
+    onSuccess: (data, variables) => {
+      // Invalidar cache dos recursos Prometheus
+      queryClient.invalidateQueries({ 
+        queryKey: ['prometheus', variables.cluster, variables.namespace] 
+      });
+    },
+  });
+}
+
+export function useCronJobsOld(cluster?: string, namespace?: string) {
   const [cronJobs, setCronJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -204,7 +274,7 @@ export function useCronJobs(cluster?: string, namespace?: string) {
   return { cronJobs, loading, error, refetch: fetchCronJobs, updateCronJob };
 }
 
-export function usePrometheus(cluster?: string, namespace?: string) {
+export function usePrometheusOld(cluster?: string, namespace?: string) {
   const [resources, setResources] = useState<PrometheusResource[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

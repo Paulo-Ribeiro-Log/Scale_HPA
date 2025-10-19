@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"k8s-hpa-manager/internal/config"
+
+	"github.com/gin-gonic/gin"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -25,17 +26,17 @@ func NewPrometheusHandler(km *config.KubeConfigManager) *PrometheusHandler {
 
 // PrometheusResource representa um recurso do Prometheus Stack
 type PrometheusResource struct {
-	Name                 string  `json:"name"`
-	Namespace            string  `json:"namespace"`
-	Type                 string  `json:"type"`                   // Deployment, StatefulSet, DaemonSet
-	Component            string  `json:"component"`              // prometheus-server, grafana, etc.
-	Replicas             int32   `json:"replicas"`
-	CurrentCPURequest    string  `json:"current_cpu_request"`
-	CurrentMemoryRequest string  `json:"current_memory_request"`
-	CurrentCPULimit      string  `json:"current_cpu_limit"`
-	CurrentMemoryLimit   string  `json:"current_memory_limit"`
-	CPUUsage             string  `json:"cpu_usage,omitempty"`    // Uso atual (se disponível)
-	MemoryUsage          string  `json:"memory_usage,omitempty"` // Uso atual (se disponível)
+	Name                 string `json:"name"`
+	Namespace            string `json:"namespace"`
+	Type                 string `json:"type"`      // Deployment, StatefulSet, DaemonSet
+	Component            string `json:"component"` // prometheus-server, grafana, etc.
+	Replicas             int32  `json:"replicas"`
+	CurrentCPURequest    string `json:"current_cpu_request"`
+	CurrentMemoryRequest string `json:"current_memory_request"`
+	CurrentCPULimit      string `json:"current_cpu_limit"`
+	CurrentMemoryLimit   string `json:"current_memory_limit"`
+	CPUUsage             string `json:"cpu_usage,omitempty"`    // Uso atual (se disponível)
+	MemoryUsage          string `json:"memory_usage,omitempty"` // Uso atual (se disponível)
 }
 
 // List retorna todos os recursos do Prometheus Stack em um namespace
@@ -208,7 +209,29 @@ func (h *PrometheusHandler) Update(c *gin.Context) {
 
 func isPrometheusRelated(name string) bool {
 	nameLower := strings.ToLower(name)
-	keywords := []string{"prometheus", "grafana", "alertmanager", "node-exporter", "kube-state-metrics", "pushgateway", "blackbox"}
+	keywords := []string{
+		// Prometheus core components
+		"prometheus", "prom",
+		// Grafana
+		"grafana",
+		// Alerting
+		"alertmanager", "alert-manager",
+		// Exporters
+		"node-exporter", "node_exporter", "nodeexporter",
+		"kube-state-metrics", "kube_state_metrics", "kubestatemetrics",
+		"prometheus-pushgateway", "pushgateway", "push-gateway",
+		"blackbox-exporter", "blackbox_exporter", "blackboxexporter",
+		"cadvisor", "c-advisor",
+		// Monitoring stack components
+		"metrics-server", "metrics_server", "metricsserver",
+		"thanos", "cortex", "mimir",
+		// Common monitoring patterns
+		"monitoring", "observability", "telemetry",
+		// Helm chart patterns
+		"kube-prometheus", "prometheus-operator", "prometheus_operator",
+		"prometheus-stack", "monitoring-stack",
+	}
+
 	for _, keyword := range keywords {
 		if strings.Contains(nameLower, keyword) {
 			return true
@@ -219,9 +242,13 @@ func isPrometheusRelated(name string) bool {
 
 func isMonitoringNamespace(namespace string) bool {
 	namespaceLower := strings.ToLower(namespace)
-	monitoringNamespaces := []string{"monitoring", "prometheus", "observability", "kube-prometheus"}
+	monitoringNamespaces := []string{
+		"monitoring", "prometheus", "observability",
+		"kube-prometheus", "grafana", "metrics",
+		"telemetry", "logging", "ops",
+	}
 	for _, ns := range monitoringNamespaces {
-		if namespaceLower == ns {
+		if namespaceLower == ns || strings.Contains(namespaceLower, ns) {
 			return true
 		}
 	}
@@ -304,20 +331,62 @@ func extractContainerResources(resource *PrometheusResource, container *corev1.C
 }
 
 func getComponentName(name string) string {
+	nameLower := strings.ToLower(name)
+
 	components := map[string]string{
-		"prometheus-server":      "Prometheus Server",
-		"prometheus":             "Prometheus",
-		"grafana":                "Grafana",
-		"alertmanager":           "Alertmanager",
+		// Prometheus core
+		"prometheus-server":   "Prometheus Server",
+		"prometheus-operator": "Prometheus Operator",
+		"prometheus":          "Prometheus",
+		"prom":                "Prometheus",
+
+		// Grafana
+		"grafana": "Grafana",
+
+		// Alerting
+		"alertmanager":  "Alertmanager",
+		"alert-manager": "Alertmanager",
+
+		// Exporters
 		"node-exporter":          "Node Exporter",
+		"node_exporter":          "Node Exporter",
+		"nodeexporter":           "Node Exporter",
 		"kube-state-metrics":     "Kube State Metrics",
+		"kube_state_metrics":     "Kube State Metrics",
+		"kubestatemetrics":       "Kube State Metrics",
 		"prometheus-pushgateway": "Pushgateway",
+		"pushgateway":            "Pushgateway",
+		"push-gateway":           "Pushgateway",
+		"blackbox-exporter":      "Blackbox Exporter",
+		"blackbox_exporter":      "Blackbox Exporter",
+		"blackboxexporter":       "Blackbox Exporter",
+		"cadvisor":               "cAdvisor",
+		"c-advisor":              "cAdvisor",
+
+		// Metrics & Storage
+		"metrics-server": "Metrics Server",
+		"metrics_server": "Metrics Server",
+		"metricsserver":  "Metrics Server",
+		"thanos":         "Thanos",
+		"cortex":         "Cortex",
+		"mimir":          "Mimir",
+
+		// Monitoring stacks
+		"monitoring-stack": "Monitoring Stack",
+		"prometheus-stack": "Prometheus Stack",
+		"kube-prometheus":  "Kube Prometheus",
 	}
 
+	// Buscar match exato primeiro
 	for key, value := range components {
-		if contains(name, key) {
+		if nameLower == key || strings.Contains(nameLower, key) {
 			return value
 		}
+	}
+
+	// Se não encontrou match, retornar nome original com primeira letra maiúscula
+	if len(name) > 0 {
+		return strings.ToUpper(string(name[0])) + name[1:]
 	}
 	return name
 }

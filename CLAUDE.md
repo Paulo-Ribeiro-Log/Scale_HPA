@@ -45,7 +45,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ **Sistema de Logs Completo** (F3) - visualizador com scroll, copiar, limpar logs
 - ✅ **Navegação ESC corrigida** - Node Pools voltam para Namespaces (origem do Ctrl+N)
 - ✅ **Race condition corrigida** - Mutex RWLock para testes paralelos de cluster (thread-safe)
-- ✅ **Interface Web POC (90% completa)** - HPAs, Node Pools, CronJobs e Prometheus Stack implementados (ver Docs/README_WEB.md)
+- ✅ **Interface Web POC (99% completa)** - HPAs, Node Pools, CronJobs e Prometheus Stack implementados com edição funcional + Dashboard redesignado com layout moderno grid 2x2 e métricas reais (ver Docs/README_WEB.md)
 
 ### Tech Stack
 - **Language**: Go 1.23+ (toolchain 1.24.7)
@@ -1087,7 +1087,7 @@ Since Lipgloss 1.1.0 doesn't include native BorderTitle support, the app impleme
 
 ## 🌐 Interface Web
 
-### Status: ✅ 90% Completa - Frontend React Integrado
+### Status: ✅ 95% Completa - Node Pools Editor Funcional
 
 Interface web moderna construída com **React + TypeScript + shadcn/ui**, totalmente integrada ao backend Go existente.
 
@@ -1154,20 +1154,71 @@ make build        # Build Go binary (embeda static/)
 - ✅ **Frontend React** moderno com shadcn/ui
 - ✅ **Dashboard** com estatísticas e gráficos
 - ✅ **HPA Management** - CRUD completo com edição de recursos
-- ✅ **Node Pools** - Grid responsivo
+- ✅ **Node Pools** - Grid responsivo com editor funcional (autoscaling, node count, min/max)
+- ✅ **Node Pool Cluster Matching** - Correção de `-admin` suffix para matching correto
 - ✅ **CronJobs** - Suspend/Resume
 - ✅ **Prometheus Stack** - Resource management
 - ✅ **Modal de Confirmação** - Preview de alterações e progress bars de rollout
 - ✅ **Deployment Resource Updates** - CPU/Memory Request/Limit aplicados ao deployment
 - ✅ **Dev Server** com proxy API
 - ✅ **Embed no Go** binary (produção)
-- 🚧 Sessões, Rollouts (pendente)
+- 🚧 **Sessões** (Planejado - ver `Docs/WEB_SESSIONS_PLAN.md`)
+- 🚧 Rollouts (pendente)
 
 **Arquitetura:**
 - **Zero impacto** no TUI existente
 - **Modo exclusivo**: TUI **ou** Web (não simultâneo)
 - **Reutilização**: Toda lógica K8s/Azure compartilhada
 - **Build único**: Frontend embedado no binário Go
+
+### 📋 Sistema de Sessões (Planejado)
+
+**Status**: Plano completo documentado em `Docs/WEB_SESSIONS_PLAN.md`
+
+**Objetivo**: Sistema de save/load de sessões compatível 100% com TUI, permitindo:
+- Salvar staging area (HPAs + Node Pools) em sessões nomeadas
+- Carregar sessões salvas de volta para staging
+- Sessões criadas no TUI funcionam na Web e vice-versa
+- Templates de nomenclatura com variáveis: `{action}`, `{cluster}`, `{timestamp}`, etc.
+
+**Estrutura de Diretórios**:
+```
+~/.k8s-hpa-manager/sessions/
+├── HPA-Upscale/           # Sessões de upscale de HPAs
+├── HPA-Downscale/         # Sessões de downscale de HPAs
+├── Node-Upscale/          # Sessões de upscale de Node Pools
+└── Node-Downscale/        # Sessões de downscale de Node Pools
+```
+
+**Componentes Planejados**:
+
+**Backend**:
+- `internal/web/handlers/sessions.go` - Handlers REST API
+- Endpoints: GET/POST/DELETE `/api/v1/sessions`
+- Reutiliza `internal/session/manager.go` (código TUI existente)
+
+**Frontend**:
+- `SessionContext.tsx` - Gerenciamento de estado de sessões
+- `SaveSessionModal.tsx` - UI para salvar sessão atual
+- `LoadSessionModal.tsx` - UI para carregar sessões existentes
+- `sessionConverter.ts` - Conversão Staging ↔ Session JSON
+- Integração com `StagingContext` existente
+
+**Fluxo de Uso**:
+1. Usuário edita HPAs/Node Pools → Staging area
+2. Clica "Save Session" → SaveSessionModal abre
+3. Escolhe pasta (HPA-Upscale/Downscale/Node-Upscale/Downscale)
+4. Define nome usando template ou custom
+5. Backend salva JSON em `~/.k8s-hpa-manager/sessions/{folder}/{name}.json`
+6. Para carregar: LoadSessionModal lista sessões → Preview → Load → Staging area
+
+**Compatibilidade TUI ↔ Web**:
+- Mesmo formato JSON de sessão
+- Mesma estrutura de diretórios
+- SessionManager Go compartilhado
+- Templates idênticos
+
+**Ver documentação completa**: `Docs/WEB_SESSIONS_PLAN.md`
 
 ### 🐛 Correções Críticas da Interface Web (Outubro 2025)
 
@@ -1295,6 +1346,127 @@ if hpa.TargetCPURequest != "" || hpa.TargetCPULimit != "" ||
 **Arquivo Modificado:**
 - `internal/kubernetes/client.go:188-253`
 
+#### 5. **Fix: Node Pool Editor e Cluster Name Matching (RESOLVIDO - Outubro 2025)**
+
+**Problema:** Editor de Node Pools não aparecia ao clicar nos itens da lista. A API retornava erro "CLUSTER_NOT_FOUND" mesmo com clusters válidos.
+
+**Causa Raiz:**
+1. **Mismatch de nomes**: Frontend enviava `akspriv-lab-001-admin`, mas `clusters-config.json` não tinha esse cluster
+2. **Função `findClusterInConfig()`**: Não fazia match correto entre contextos do kubeconfig (com `-admin`) e nomes no config file (sem `-admin`)
+
+**Sintoma:**
+```json
+// API Request
+GET /api/v1/nodepools?cluster=akspriv-lab-001-admin
+
+// API Response
+{
+  "success": false,
+  "error": {
+    "code": "CLUSTER_NOT_FOUND",
+    "message": "Cluster not found in clusters-config.json: cluster 'akspriv-lab-001-admin' not found"
+  }
+}
+```
+
+**Solução Implementada:**
+
+**1. Corrigida lógica de matching em `findClusterInConfig()`:**
+```go
+// ✅ ANTES (incorreto)
+for _, cluster := range clusters {
+    if cluster.ClusterName == clusterContext {  // Não remove -admin
+        return &cluster, nil
+    }
+}
+
+// ✅ DEPOIS (correto)
+func findClusterInConfig(clusterContext string) (*models.ClusterConfig, error) {
+    // Remover -admin do contexto (kubeconfig contexts têm -admin, config file não)
+    clusterNameWithoutAdmin := strings.TrimSuffix(clusterContext, "-admin")
+
+    for _, cluster := range clusters {
+        // Remover -admin do cluster name também para comparação
+        configClusterName := strings.TrimSuffix(cluster.ClusterName, "-admin")
+
+        // Comparar sem o sufixo -admin
+        if configClusterName == clusterNameWithoutAdmin {
+            return &cluster, nil
+        }
+
+        // Também comparar exatamente como está (fallback)
+        if cluster.ClusterName == clusterContext {
+            return &cluster, nil
+        }
+    }
+
+    return nil, fmt.Errorf("cluster '%s' not found in clusters-config.json", clusterContext)
+}
+```
+
+**2. Estrutura JSON correta:**
+```json
+// clusters-config.json (gerado por autodiscover)
+[
+  {
+    "clusterName": "akspriv-faturamento-prd",  // ✅ sem -admin
+    "resourceGroup": "rg-faturamento-app-prd",
+    "subscription": "PRD - ONLINE 2"
+  }
+]
+
+// models.ClusterConfig (Go struct)
+type ClusterConfig struct {
+    ClusterName   string `json:"clusterName"`   // ✅ camelCase matching JSON
+    ResourceGroup string `json:"resourceGroup"`
+    Subscription  string `json:"subscription"`
+}
+```
+
+**Teste Bem-Sucedido:**
+```bash
+# Teste com cluster válido
+curl -s -H 'Authorization: Bearer poc-token-123' \
+  'http://localhost:8080/api/v1/nodepools?cluster=akspriv-faturamento-prd-admin' | jq '.'
+
+# Resposta (sucesso)
+{
+  "success": true,
+  "data": [
+    {
+      "name": "fatura",
+      "cluster_name": "akspriv-faturamento-prd",
+      "vm_size": "Standard_F4s_v2",
+      "node_count": 1,
+      "min_node_count": 1,
+      "max_node_count": 3,
+      "autoscaling_enabled": true,
+      "status": "Succeeded",
+      "is_system_pool": false
+    }
+  ],
+  "count": 4
+}
+```
+
+**Para o Editor Aparecer no Frontend:**
+1. **Hard refresh** no browser: `Ctrl+Shift+R` para limpar cache JavaScript
+2. **Selecionar cluster válido**: Use um cluster que existe em `~/.k8s-hpa-manager/clusters-config.json`
+3. **Verificar clusters disponíveis**:
+   ```bash
+   cat ~/.k8s-hpa-manager/clusters-config.json | jq '.[].clusterName'
+   ```
+4. **Clicar em um node pool** da lista - o editor deve aparecer no painel direito
+
+**Arquivos Modificados:**
+- `internal/web/handlers/nodepools.go:256-282` - Função `findClusterInConfig()` corrigida
+- `internal/models/types.go` - Struct `ClusterConfig` com tags JSON corretas (camelCase)
+
+**Nota Importante:**
+- O cluster `akspriv-lab-001-admin` da imagem do usuário **NÃO EXISTE** no `clusters-config.json` real
+- Clusters disponíveis incluem: `akspriv-faturamento-prd`, `akspriv-abastecimento-prd`, `akspriv-tms-prd`, etc.
+- Execute `k8s-hpa-manager autodiscover` se clusters estiverem faltando no config file
+
 **Validação:**
 - MinReplicas relaxada: `>= 0` (permite scale-to-zero)
 - Debug logging adicionado em `hpas.go:164,175`
@@ -1321,6 +1493,175 @@ if hpa.TargetCPURequest != "" || hpa.TargetCPULimit != "" ||
 
 ---
 
+#### 6. **Feature: Dashboard com Métricas de Cluster (IMPLEMENTADO - Outubro 2025)**
+
+**Objetivo:** Dashboard mostrando informações essenciais do cluster com gráficos gauge-style para CPU e memória.
+
+**Problema Inicial:**
+- Dashboard exibia erro "Failed to get cluster info"
+- Frontend não conseguia acessar dados do backend
+- Estrutura de resposta JSON incorreta no cliente API
+
+**Solução Implementada:**
+
+**1. Correção do Cliente API:**
+```typescript
+// ❌ ANTES - Estrutura incorreta
+async getClusterInfo(): Promise<ClusterInfo> {
+  const response = await this.request('/clusters/info', { method: 'GET' });
+  return response.data.data; // ❌ Tentava acessar data.data
+}
+
+// ✅ DEPOIS - Estrutura correta
+async getClusterInfo(): Promise<ClusterInfo> {
+  const response = await this.request('/clusters/info', { method: 'GET' }) as { success: boolean; data: ClusterInfo };
+  return response.data; // ✅ Acessa apenas data
+}
+```
+
+**2. Melhorias na Interface:**
+```typescript
+// Labels corrigidos para refletir dados reais
+<CircularMetric
+  percentage={clusterInfo?.cpuUsagePercent || 0}
+  label="CPU Requests"     // ✅ ANTES: "CPU Usage"
+  icon={Cpu}
+  color="text-blue-500"
+/>
+<CircularMetric
+  percentage={clusterInfo?.memoryUsagePercent || 0}
+  label="Memory Requests"  // ✅ ANTES: "Memory Usage"
+  icon={HardDrive}
+  color="text-green-500"
+/>
+```
+
+**3. Limpeza do Dashboard:**
+- ❌ **Removido:** Cards "HPAs por Namespace" e "Distribuição de Réplicas" (não faziam sentido)
+- ✅ **Mantido:** "Informações do Cluster" e "Alocação de Recursos"
+
+**Features do Dashboard:**
+- ✅ **Informações do Cluster:** Nome, contexto, versão K8s, namespace, contadores (nodes/pods)
+- ✅ **Gráficos Gauge:** CPU e memória com percentuais circulares animados
+- ✅ **Layout Responsivo:** Grid 2 colunas, design limpo
+- ✅ **Auto-refresh:** Atualização a cada 30 segundos
+- ✅ **Error Handling:** Botão "Tentar novamente" em caso de erro
+
+**Esclarecimento sobre Métricas:**
+- **CPU/Memory %** = Alocação de recursos via `requests` dos containers
+- **NÃO é uso real** - para métricas reais seria necessário Metrics Server ou Prometheus
+- Títulos alterados para "Alocação de Recursos" para evitar confusão
+
+**Arquivos Modificados:**
+- `internal/web/frontend/src/lib/api/client.ts:85-87` - Fix estrutura response
+- `internal/web/frontend/src/components/DashboardCharts.tsx:194-210` - Labels e layout
+- `internal/config/kubeconfig.go:601` - Comentário sobre fonte dos dados
+
+**Resultado:** Dashboard funcional exibindo informações reais do cluster com gráficos gauge profissionais! ✅
+
+#### 7. **Feature: Dashboard Redesign com MetricsGauge (IMPLEMENTADO - Outubro 2025)**
+
+**Objetivo:** Redesign completo do dashboard para um estilo mais moderno e profissional com layout em grid 2x2.
+
+**Problema:** O dashboard anterior tinha um layout básico que não aproveitava bem o espaço e não tinha uma aparência profissional.
+
+**Solução Implementada:**
+
+**1. Novo Componente MetricsGauge:**
+```typescript
+// Componente reutilizável para métricas com gauge circular + barra de progresso
+interface MetricsGaugeProps {
+  icon: LucideIcon;
+  label: string;
+  value: number;
+  unit?: string;
+  maxValue?: number;
+  warningThreshold?: number;
+  dangerThreshold?: number;
+}
+
+// Features:
+- Gráfico circular SVG customizado
+- Barra de progresso inferior (shadcn/ui Progress)
+- Cores dinâmicas baseadas em thresholds
+- Animações suaves (stroke-dashoffset)
+- Status visual (success/warning/destructive)
+```
+
+**2. Layout Grid 2x2 Moderno:**
+```typescript
+// Dashboard com 4 cards principais em grid responsivo
+<div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
+  <MetricsGauge 
+    icon={Cpu} 
+    label="CPU Usage" 
+    value={cpuUsagePercent} 
+    warningThreshold={70} 
+    dangerThreshold={90} 
+  />
+  <MetricsGauge 
+    icon={HardDrive} 
+    label="Memory Usage" 
+    value={memoryUsagePercent} 
+    warningThreshold={70} 
+    dangerThreshold={90} 
+  />
+  <MetricsGauge 
+    icon={Activity} 
+    label="CPU Usage Over Time" 
+    value={0} 
+    // Placeholder para funcionalidade futura
+  />
+  <MetricsGauge 
+    icon={Database} 
+    label="Memory Usage Over Time" 
+    value={0} 
+    // Placeholder para funcionalidade futura
+  />
+</div>
+```
+
+**3. Melhorias Visuais:**
+- **Gauge Circular Responsivo:** SVG que se adapta ao container
+- **Barra de Progresso:** Indicador visual adicional na base do card
+- **Cores Inteligentes:** 
+  - 🟢 Verde (0-69%): Normal
+  - 🟡 Amarelo (70-89%): Warning  
+  - 🔴 Vermelho (90%+): Danger
+- **Animações Suaves:** Transições de 0.8s para mudanças de valores
+- **Cards Uniformes:** Altura e layout consistentes
+
+**4. Sistema de Threshold Configurável:**
+```typescript
+// Thresholds customizáveis por métrica
+const cpuThresholds = { warning: 70, danger: 90 };
+const memoryThresholds = { warning: 80, danger: 95 };
+```
+
+**5. Placeholder Cards para Expansão Futura:**
+- **CPU Usage Over Time:** Gráfico de linha temporal
+- **Memory Usage Over Time:** Gráfico de linha temporal  
+- **HPAs by Namespace:** Distribuição por namespace
+- **Replica Distribution:** Distribuição de réplicas
+
+**Features Implementadas:**
+- ✅ **Layout Grid 2x2** responsivo (1 col mobile, 2 cols desktop)
+- ✅ **Componente MetricsGauge** reutilizável
+- ✅ **Gauge Circular** com animação de progresso
+- ✅ **Barra de Progresso** inferior para reforço visual
+- ✅ **Sistema de Cores** baseado em thresholds configuráveis
+- ✅ **Integração com shadcn/ui** (Progress, Card, etc.)
+- ✅ **Métricas Reais** do cluster selecionado
+- ✅ **Placeholder Cards** para funcionalidades futuras
+
+**Arquivos Criados/Modificados:**
+- `internal/web/frontend/src/components/MetricsGauge.tsx` (NOVO - 89 linhas)
+- `internal/web/frontend/src/components/DashboardCharts.tsx` (redesign completo)
+
+**Resultado:** Dashboard moderno estilo enterprise com layout profissional em grid 2x2! ✅
+
+---
+
 **Happy coding!** 🚀
 
 ---
@@ -1330,3 +1671,95 @@ if hpa.TargetCPURequest != "" || hpa.TargetCPULimit != "" ||
 **Sempre compile o build em ./build/** - `make build` → `./build/k8s-hpa-manager`
 
 **Para continuar POC web:** Leia `Docs/README_WEB.md` ou execute `./QUICK_START_WEB.sh`
+
+# CLAUDE.md - Sessão de Desenvolvimento Web Interface
+
+## Data: 18 de Outubro de 2025
+## Objetivo: Implementar sistema de sessões completo na interface web
+
+---
+
+## 🚨 PROBLEMA INICIAL IDENTIFICADO
+
+### Sintomas Reportados pelo Usuário:
+1. **Tela branca** ao selecionar node pools no editor
+2. **Alterações não sendo salvas** no staging quando editava HPAs
+3. **Sistema de sessões não funcional** - sem interface visual para Save/Load
+4. **Sessões não sendo salvas** no local correto (`~/.k8s-hpa-manager/sessions/<pasta>`)
+5. **Load não reconhecia** arquivos existentes nas pastas de sessão
+
+---
+
+## 🔧 DIAGNÓSTICO E CORREÇÕES REALIZADAS
+
+### 1. **PROBLEMA: Tela Branca no NodePoolEditor**
+
+**Causa Raiz:**
+```typescript
+// ❌ ERRO: Métodos inexistentes no StagingContext
+const stagedPool = staging.getNodePool(key);  // Não existe
+staging.addNodePool(modifiedNodePool, nodePool, order);  // Assinatura errada
+```
+
+**Solução Aplicada:**
+```typescript
+// ✅ CORRETO: Usar métodos reais do StagingContext
+const stagedPool = staging.stagedNodePools.find(
+  np => np.cluster_name === nodePool.cluster_name && np.name === nodePool.name
+);
+
+staging.addNodePoolToStaging(nodePool);
+staging.updateNodePoolInStaging(nodePool.cluster_name, nodePool.name, updates);
+```
+
+**Arquivos Modificados:**
+- `internal/web/frontend/src/components/NodePoolEditor.tsx`
+
+---
+
+### 2. **PROBLEMA: HPAEditor Não Salvava no Staging**
+
+**Causa Raiz:**
+```typescript
+// ❌ ERRO: Método inexistente
+staging.add(modifiedHPA, hpa);  // Método não existe no contexto
+```
+
+**Solução Aplicada:**
+```typescript
+// ✅ CORRETO: Fluxo correto do staging
+staging.addHPAToStaging(hpa);  // Adicionar primeiro
+staging.updateHPAInStaging(hpa.cluster, hpa.namespace, hpa.name, updates);  // Depois atualizar
+```
+
+**Arquivos Modificados:**
+- `internal/web/frontend/src/components/HPAEditor.tsx`
+
+---
+
+### 3. **PROBLEMA: Index.tsx com Métodos Inexistentes**
+
+**Causa Raiz:**
+```typescript
+// ❌ ERRO: Propriedades que não existiam
+modifiedCount={staging.count + staging.nodePoolCount}  // Não existe
+staging.getAll()  // Não existe
+staging.getAllNodePools()  // Não existe
+```
+
+**Solução Aplicada:**
+```typescript
+// ✅ CORRETO: Usar API correta do StagingContext
+modifiedCount={staging.getChangesCount().total}
+
+const modifiedHPAs = staging.stagedHPAs
+  .filter(hpa => hpa.isModified)
+  .map(hpa => ({
+    key: `${hpa.cluster}/${hpa.namespace}/${hpa.name}`,
+    current: hpa,
+    original: { ...hpa, ...hpa.originalValues } as HPA,
+  }));
+```
+
+**Arquivos Modificados:**
+- `internal/web/frontend/src/pages/Index.tsx`

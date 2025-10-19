@@ -9,6 +9,18 @@ export interface Cluster {
   subscription?: string;
 }
 
+export interface ClusterInfo {
+  cluster: string;
+  context: string;
+  server: string;
+  namespace: string;
+  kubernetesVersion: string;
+  cpuUsagePercent: number;
+  memoryUsagePercent: number;
+  nodeCount: number;
+  podCount: number;
+}
+
 export interface Namespace {
   name: string;
   cluster: string;
@@ -70,46 +82,64 @@ export interface HPACondition {
 
 export interface NodePool {
   name: string;
-  cluster: string;
-  resourceGroup: string;
-  count: number;
-  minCount?: number;
-  maxCount?: number;
-  vmSize: string;
-  osType: string;
-  mode: string;
-  autoscalingEnabled: boolean;
+  vm_size: string;
+  node_count: number;
+  min_node_count: number;
+  max_node_count: number;
+  autoscaling_enabled: boolean;
   status: string;
-  originalValues?: {
-    count: number;
-    minCount?: number;
-    maxCount?: number;
-    autoscalingEnabled: boolean;
+  is_system_pool: boolean;
+  cluster_name: string;
+  resource_group: string;
+  subscription: string;
+  modified: boolean;
+  selected: boolean;
+  applied_count: number;
+  sequence_order: number;
+  sequence_status: string;
+  original_values: {
+    node_count: number;
+    min_node_count: number;
+    max_node_count: number;
+    autoscaling_enabled: boolean;
   };
 }
 
 export interface CronJob {
   name: string;
   namespace: string;
-  cluster: string;
   schedule: string;
+  schedule_description: string;
+  suspend: boolean | null;
+  last_schedule_time?: string;
+  active_jobs: number;
+  successful_jobs: number;
+  failed_jobs: number;
+}
+
+export interface CronJobUpdate {
   suspend: boolean;
-  lastScheduleTime?: string;
-  active: number;
-  status: "active" | "suspended" | "failed" | "running";
 }
 
 export interface PrometheusResource {
   name: string;
   namespace: string;
-  cluster: string;
-  type: "Deployment" | "StatefulSet" | "DaemonSet";
-  cpuRequest?: string;
-  cpuLimit?: string;
-  memoryRequest?: string;
-  memoryLimit?: string;
-  currentCPU?: string;
-  currentMemory?: string;
+  type: string; // Deployment, StatefulSet, DaemonSet
+  component: string; // prometheus-server, grafana, etc.
+  replicas: number;
+  current_cpu_request: string;
+  current_memory_request: string;
+  current_cpu_limit: string;
+  current_memory_limit: string;
+  cpu_usage?: string;
+  memory_usage?: string;
+}
+
+export interface PrometheusResourceUpdate {
+  cpu_request: string;
+  memory_request: string;
+  cpu_limit: string;
+  memory_limit: string;
   replicas?: number;
 }
 
@@ -130,4 +160,117 @@ export interface APIResponse<T> {
   data?: T;
   error?: string;
   message?: string;
+}
+
+// Session Management Types
+export interface Session {
+  name: string;
+  created_at: string;
+  created_by: string;
+  description?: string;
+  template_used: string;
+  metadata?: SessionMetadata;
+  changes: HPAChange[];
+  node_pool_changes: NodePoolChange[];
+  resource_changes: ClusterResourceChange[];
+  rollback_data?: RollbackData;
+}
+
+export interface SessionMetadata {
+  clusters_affected: string[];
+  namespaces_count: number;
+  hpa_count: number;
+  node_pool_count: number;
+  resource_count: number;
+  total_changes: number;
+}
+
+export interface RollbackData {
+  original_state_captured: boolean;
+  can_rollback: boolean;
+  rollback_script_generated: boolean;
+}
+
+export interface HPAChange {
+  cluster: string;
+  namespace: string;
+  hpa_name: string;
+  original_values?: HPAValues;
+  new_values?: HPAValues;
+  applied: boolean;
+  applied_at?: string;
+  rollout_triggered: boolean;
+  daemonset_rollout_triggered: boolean;
+  statefulset_rollout_triggered: boolean;
+}
+
+export interface HPAValues {
+  min_replicas?: number;
+  max_replicas?: number;
+  target_cpu?: number;
+  target_memory?: number;
+  cpu_request?: string;
+  cpu_limit?: string;
+  memory_request?: string;
+  memory_limit?: string;
+  deployment_name?: string;
+  perform_rollout?: boolean;
+  perform_daemonset_rollout?: boolean;
+  perform_statefulset_rollout?: boolean;
+}
+
+export interface NodePoolChange {
+  cluster: string;
+  resource_group: string;
+  subscription: string;
+  node_pool_name: string;
+  original_values: NodePoolValues;
+  new_values: NodePoolValues;
+  applied: boolean;
+  applied_at?: string;
+  error?: string;
+  sequence_order: number;
+  sequence_status: string;
+}
+
+export interface NodePoolValues {
+  node_count: number;
+  min_node_count: number;
+  max_node_count: number;
+  autoscaling_enabled: boolean;
+}
+
+export interface ClusterResourceChange {
+  cluster: string;
+  namespace: string;
+  resource_name: string;
+  resource_type: string;
+  original_values: ResourceValues;
+  new_values: ResourceValues;
+  applied: boolean;
+  applied_at?: string;
+  error?: string;
+}
+
+export interface ResourceValues {
+  cpu_request?: string;
+  cpu_limit?: string;
+  memory_request?: string;
+  memory_limit?: string;
+  replicas?: number;
+}
+
+export interface SessionFolder {
+  name: string;
+  type: "hpa" | "nodepool";
+  action: "upscale" | "downscale";
+  description: string;
+}
+
+export interface SessionTemplate {
+  name: string;
+  description: string;
+  pattern: string;
+  variables: string[];
+  example: string;
 }

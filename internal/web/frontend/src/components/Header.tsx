@@ -6,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LogOut, CheckCircle, Zap } from "lucide-react";
+import { LogOut, CheckCircle, Zap, Save, FolderOpen } from "lucide-react";
 
 interface HeaderProps {
   selectedCluster: string;
@@ -15,6 +15,8 @@ interface HeaderProps {
   modifiedCount: number;
   onApplyAll: () => void;
   onApplySequential?: () => void;
+  onSaveSession?: () => void;
+  onLoadSession?: () => void;
   userInfo: string;
   onLogout: () => void;
 }
@@ -26,6 +28,8 @@ export const Header = ({
   modifiedCount,
   onApplyAll,
   onApplySequential,
+  onSaveSession,
+  onLoadSession,
   userInfo,
   onLogout,
 }: HeaderProps) => {
@@ -49,7 +53,34 @@ export const Header = ({
         </Select>
       </div>
       
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
+        {/* Session Management Buttons */}
+        {onLoadSession && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="bg-white/20 hover:bg-white/30 text-white border-white/30"
+            onClick={onLoadSession}
+            title="Load Session"
+          >
+            <FolderOpen className="w-4 h-4 mr-2" />
+            Load Session
+          </Button>
+        )}
+        
+        {onSaveSession && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="bg-white/20 hover:bg-white/30 text-white border-white/30"
+            onClick={onSaveSession}
+            title="Save Session"
+          >
+            <Save className="w-4 h-4 mr-2" />
+            Save Session
+          </Button>
+        )}
+        
         {onApplySequential && (
           <Button
             variant="secondary"

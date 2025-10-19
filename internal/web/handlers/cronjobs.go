@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gin-gonic/gin"
 	"k8s-hpa-manager/internal/config"
+
+	"github.com/gin-gonic/gin"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -49,9 +50,12 @@ func (h *CronJobHandler) List(c *gin.Context) {
 		return
 	}
 
+	fmt.Printf("[DEBUG] CronJobs - Listing for cluster: %s, namespace: %s\n", cluster, namespace)
+
 	// Obter client do cluster
 	client, err := h.kubeManager.GetClient(cluster)
 	if err != nil {
+		fmt.Printf("[DEBUG] CronJobs - Failed to get client for cluster %s: %v\n", cluster, err)
 		c.JSON(500, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -65,6 +69,7 @@ func (h *CronJobHandler) List(c *gin.Context) {
 	// Listar CronJobs
 	cronJobList, err := client.BatchV1().CronJobs(namespace).List(context.Background(), metav1.ListOptions{})
 	if err != nil {
+		fmt.Printf("[DEBUG] CronJobs - Error listing cronjobs in namespace %s: %v\n", namespace, err)
 		c.JSON(500, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -75,12 +80,17 @@ func (h *CronJobHandler) List(c *gin.Context) {
 		return
 	}
 
+	fmt.Printf("[DEBUG] CronJobs - Found %d cronjobs in namespace %s\n", len(cronJobList.Items), namespace)
+
 	// Converter para resposta
 	cronJobs := make([]CronJobResponse, 0)
 	for _, cj := range cronJobList.Items {
+		fmt.Printf("[DEBUG] CronJobs - Processing cronjob: %s\n", cj.Name)
 		cronJob := convertCronJobToResponse(&cj)
 		cronJobs = append(cronJobs, cronJob)
 	}
+
+	fmt.Printf("[DEBUG] CronJobs - Total cronjobs processed: %d\n", len(cronJobs))
 
 	c.JSON(200, gin.H{
 		"success": true,

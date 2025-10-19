@@ -113,6 +113,8 @@ func (s *Server) setupRoutes() {
 	clusterHandler := handlers.NewClusterHandler(s.kubeManager)
 	api.GET("/clusters", clusterHandler.List)
 	api.GET("/clusters/:name/test", clusterHandler.Test)
+	api.POST("/clusters/switch-context", clusterHandler.SwitchContext)
+	api.GET("/clusters/info", clusterHandler.GetClusterInfo)
 
 	// Namespaces
 	namespaceHandler := handlers.NewNamespaceHandler(s.kubeManager)
@@ -127,6 +129,7 @@ func (s *Server) setupRoutes() {
 	// Node Pools
 	nodePoolHandler := handlers.NewNodePoolHandler(s.kubeManager)
 	api.GET("/nodepools", nodePoolHandler.List)
+	api.PUT("/nodepools/:cluster/:resource_group/:name", nodePoolHandler.Update)
 	api.POST("/nodepools/apply-sequential", nodePoolHandler.ApplySequential)
 
 	// CronJobs
@@ -142,6 +145,16 @@ func (s *Server) setupRoutes() {
 	// Validation (VPN + Azure CLI)
 	validationHandler := handlers.NewValidationHandler()
 	api.GET("/validate", validationHandler.Validate)
+
+	// Sessions
+	sessionHandler := handlers.NewSessionsHandler()
+	api.GET("/sessions", sessionHandler.ListAllSessions)
+	api.GET("/sessions/folders", sessionHandler.ListSessionFolders)
+	api.GET("/sessions/folders/:folder", sessionHandler.ListSessionsInFolder)
+	api.GET("/sessions/:name", sessionHandler.GetSession)
+	api.POST("/sessions", sessionHandler.SaveSession)
+	api.DELETE("/sessions/:name", sessionHandler.DeleteSession)
+	api.GET("/sessions/templates", sessionHandler.GetSessionTemplates)
 }
 
 // setupStatic configura servir arquivos estáticos

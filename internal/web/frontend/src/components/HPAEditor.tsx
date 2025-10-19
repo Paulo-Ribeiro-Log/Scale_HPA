@@ -83,9 +83,11 @@ export const HPAEditor = ({ hpa, onApplied, onApply }: HPAEditorProps) => {
 
     setIsSaving(true);
 
-    // Create modified HPA
-    const modifiedHPA: HPA = {
-      ...hpa,
+    // First add to staging if not already there
+    staging.addHPAToStaging(hpa);
+
+    // Then update with modified values
+    const updates: Partial<HPA> = {
       min_replicas: minReplicas,
       max_replicas: maxReplicas,
       target_cpu: targetCPU ?? null,
@@ -94,12 +96,15 @@ export const HPAEditor = ({ hpa, onApplied, onApply }: HPAEditorProps) => {
       target_cpu_limit: targetCpuLimit || undefined,
       target_memory_request: targetMemoryRequest || undefined,
       target_memory_limit: targetMemoryLimit || undefined,
+      perform_rollout: performRollout,
+      perform_daemonset_rollout: performDaemonSetRollout,
+      perform_statefulset_rollout: performStatefulSetRollout,
     };
 
-    // Add to staging area
-    staging.add(modifiedHPA, hpa);
+    staging.updateHPAInStaging(hpa.cluster, hpa.namespace, hpa.name, updates);
 
-    toast.success(`HPA salvo no staging (${staging.count + 1} pendente${staging.count > 0 ? 's' : ''})`);
+    const changesCount = staging.getChangesCount();
+    toast.success(`HPA salvo no staging (${changesCount.total} alteraç${changesCount.total === 1 ? 'ão' : 'ões'} pendente${changesCount.total === 1 ? '' : 's'})`);
     setIsSaving(false);
   };
 

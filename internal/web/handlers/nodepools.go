@@ -24,6 +24,14 @@ func NewNodePoolHandler(km *config.KubeConfigManager) *NodePoolHandler {
 	return &NodePoolHandler{kubeManager: km}
 }
 
+// NodePoolUpdateRequest representa o payload de atualização de um node pool
+type NodePoolUpdateRequest struct {
+	NodeCount          *int32 `json:"node_count"`
+	MinNodeCount       *int32 `json:"min_node_count"`
+	MaxNodeCount       *int32 `json:"max_node_count"`
+	AutoscalingEnabled *bool  `json:"autoscaling_enabled"`
+}
+
 // List retorna todos os node pools de um cluster
 func (h *NodePoolHandler) List(c *gin.Context) {
 	cluster := c.Query("cluster")
@@ -100,6 +108,148 @@ func (h *NodePoolHandler) List(c *gin.Context) {
 	})
 }
 
+// Update atualiza um node pool específico via Azure CLI
+func (h *NodePoolHandler) Update(c *gin.Context) {
+	cluster := c.Param("cluster")
+	resourceGroup := c.Param("resource_group")
+	nodePoolName := c.Param("name")
+
+	if cluster == "" || resourceGroup == "" || nodePoolName == "" {
+		c.JSON(400, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "MISSING_PARAMETERS",
+				"message": "Parameters 'cluster', 'resource_group', and 'name' are required",
+			},
+		})
+		return
+	}
+
+	// Parse do body
+	var req NodePoolUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_REQUEST",
+				"message": fmt.Sprintf("Invalid request body: %v", err),
+			},
+		})
+		return
+	}
+
+	// Buscar configuração do cluster no clusters-config.json
+	clusterConfig, err := findClusterInConfig(cluster)
+	if err != nil {
+		c.JSON(404, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "CLUSTER_NOT_FOUND",
+				"message": fmt.Sprintf("Cluster not found in clusters-config.json: %v", err),
+			},
+		})
+		return
+	}
+
+	// Validar Azure AD
+	if err := validators.ValidateAzureAuth(); err != nil {
+		c.JSON(401, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "AZURE_AUTH_FAILED",
+				"message": fmt.Sprintf("Azure authentication failed: %v", err),
+			},
+		})
+		return
+	}
+
+	// Configurar subscription
+	cmd := exec.Command("az", "account", "set", "--subscription", clusterConfig.Subscription)
+	if err := cmd.Run(); err != nil {
+		c.JSON(500, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "AZURE_SUBSCRIPTION_ERROR",
+				"message": fmt.Sprintf("Failed to set subscription: %v", err),
+			},
+		})
+		return
+	}
+
+	// Normalizar nome do cluster
+	clusterNameForAzure := strings.TrimSuffix(clusterConfig.ClusterName, "-admin")
+
+	// Converter request para NodePoolOperation
+	op := NodePoolOperation{
+		Name:               nodePoolName,
+		AutoscalingEnabled: req.AutoscalingEnabled != nil && *req.AutoscalingEnabled,
+		NodeCount:          0,
+		MinNodeCount:       0,
+		MaxNodeCount:       0,
+	}
+
+	if req.NodeCount != nil {
+		op.NodeCount = *req.NodeCount
+	}
+	if req.MinNodeCount != nil {
+		op.MinNodeCount = *req.MinNodeCount
+	}
+	if req.MaxNodeCount != nil {
+		op.MaxNodeCount = *req.MaxNodeCount
+	}
+
+	// Aplicar mudanças via Azure CLI (reutiliza função de sequential)
+	if err := applyNodePoolChanges(clusterNameForAzure, resourceGroup, op); err != nil {
+		c.JSON(500, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "AZURE_OPERATION_FAILED",
+				"message": fmt.Sprintf("Failed to update node pool: %v", err),
+			},
+		})
+		return
+	}
+
+	// Recarregar node pools para retornar o estado atualizado
+	nodePools, err := loadNodePoolsFromAzure(clusterNameForAzure, clusterConfig.ResourceGroup)
+	if err != nil {
+		c.JSON(500, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "RELOAD_FAILED",
+				"message": fmt.Sprintf("Node pool updated but failed to reload: %v", err),
+			},
+		})
+		return
+	}
+
+	// Encontrar o node pool atualizado
+	var updatedPool *models.NodePool
+	for i := range nodePools {
+		if nodePools[i].Name == nodePoolName {
+			updatedPool = &nodePools[i]
+			break
+		}
+	}
+
+	if updatedPool == nil {
+		c.JSON(404, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "NOT_FOUND",
+				"message": "Node pool not found after update",
+			},
+		})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"success": true,
+		"data":    updatedPool,
+		"message": fmt.Sprintf("Node pool '%s' updated successfully", nodePoolName),
+	})
+}
+
 // --- Funções auxiliares ---
 
 // findClusterInConfig encontra configuração do cluster no arquivo
@@ -109,20 +259,21 @@ func findClusterInConfig(clusterContext string) (*models.ClusterConfig, error) {
 		return nil, err
 	}
 
+	// Remover -admin do contexto se existir (kubeconfig contexts têm -admin, config file não)
+	clusterNameWithoutAdmin := strings.TrimSuffix(clusterContext, "-admin")
+
 	// Tentar encontrar por context ou cluster name
 	for _, cluster := range clusters {
-		// Comparar com o context (nome completo)
+		// Remover -admin do cluster name também para comparação
+		configClusterName := strings.TrimSuffix(cluster.ClusterName, "-admin")
+
+		// Comparar sem o sufixo -admin
+		if configClusterName == clusterNameWithoutAdmin {
+			return &cluster, nil
+		}
+
+		// Também comparar exatamente como está
 		if cluster.ClusterName == clusterContext {
-			return &cluster, nil
-		}
-
-		// Também tentar com o context do kubeconfig
-		if cluster.ClusterName+"-admin" == clusterContext {
-			return &cluster, nil
-		}
-
-		// Tentar sem -admin
-		if strings.TrimSuffix(cluster.ClusterName, "-admin") == clusterContext {
 			return &cluster, nil
 		}
 	}
