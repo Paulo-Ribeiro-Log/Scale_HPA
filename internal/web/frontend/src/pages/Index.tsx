@@ -228,65 +228,19 @@ const Index = ({ onLogout }: IndexProps) => {
       
       case "cronjobs":
         return (
-          <div className="flex flex-col h-full">
-            {/* Namespace selector for CronJobs */}
-            <div className="flex items-center gap-4 p-4 border-b">
-              <label htmlFor="namespace-select" className="text-sm font-medium">
-                Namespace:
-              </label>
-              <select
-                id="namespace-select"
-                value={selectedNamespace}
-                onChange={(e) => setSelectedNamespace(e.target.value)}
-                className="px-3 py-1 border rounded-md text-sm"
-              >
-                <option value="">Selecione um namespace</option>
-                {namespaces.map((ns) => (
-                  <option key={ns.name} value={ns.name}>
-                    {ns.name} {ns.isSystem ? "(system)" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            <div className="flex-1 overflow-auto p-4">
-              <CronJobsPage 
-                selectedCluster={selectedCluster} 
-                selectedNamespace={selectedNamespace} 
-              />
-            </div>
+          <div className="flex-1 overflow-auto p-4">
+            <CronJobsPage 
+              selectedCluster={selectedCluster}
+            />
           </div>
         );
       
       case "prometheus":
         return (
-          <div className="flex flex-col h-full">
-            {/* Namespace selector for Prometheus */}
-            <div className="flex items-center gap-4 p-4 border-b">
-              <label htmlFor="prometheus-namespace-select" className="text-sm font-medium">
-                Namespace:
-              </label>
-              <select
-                id="prometheus-namespace-select"
-                value={selectedNamespace}
-                onChange={(e) => setSelectedNamespace(e.target.value)}
-                className="px-3 py-1 border rounded-md text-sm"
-              >
-                <option value="">Selecione um namespace</option>
-                {namespaces.map((ns) => (
-                  <option key={ns.name} value={ns.name}>
-                    {ns.name} {ns.isSystem ? "(system)" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            <div className="flex-1 overflow-auto p-4">
-              <PrometheusPage 
-                selectedCluster={selectedCluster} 
-                selectedNamespace={selectedNamespace} 
-              />
-            </div>
+          <div className="flex-1 overflow-auto p-4">
+            <PrometheusPage 
+              selectedCluster={selectedCluster} 
+            />
           </div>
         );
       
@@ -372,7 +326,7 @@ const Index = ({ onLogout }: IndexProps) => {
         onTabChange={setActiveTab}
       />
 
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-auto">
         {renderTabContent()}
       </div>
 

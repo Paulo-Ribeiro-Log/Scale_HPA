@@ -177,10 +177,9 @@ class APIClient {
   }
 
   // CronJobs
-  async getCronJobs(cluster?: string, namespace?: string): Promise<CronJob[]> {
+  async getCronJobs(cluster?: string): Promise<CronJob[]> {
     const params = new URLSearchParams();
     if (cluster) params.append("cluster", cluster);
-    if (namespace) params.append("namespace", namespace);
     const query = params.toString() ? `?${params.toString()}` : "";
 
     const response = await this.request<APIResponse<CronJob[]>>(
@@ -208,12 +207,10 @@ class APIClient {
 
   // Prometheus Stack
   async getPrometheusResources(
-    cluster?: string,
-    namespace?: string
+    cluster?: string
   ): Promise<PrometheusResource[]> {
     const params = new URLSearchParams();
     if (cluster) params.append("cluster", cluster);
-    if (namespace) params.append("namespace", namespace);
     const query = params.toString() ? `?${params.toString()}` : "";
 
     const response = await this.request<APIResponse<PrometheusResource[]>>(

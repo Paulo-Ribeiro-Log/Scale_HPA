@@ -164,11 +164,11 @@ export function useNodePools(cluster?: string) {
 }
 
 // CronJobs hooks
-export function useCronJobs(cluster?: string, namespace?: string) {
+export function useCronJobs(cluster?: string) {
   return useQuery({
-    queryKey: ['cronjobs', cluster, namespace],
-    queryFn: () => apiClient.getCronJobs(cluster, namespace),
-    enabled: !!cluster && !!namespace,
+    queryKey: ['cronjobs', cluster],
+    queryFn: () => apiClient.getCronJobs(cluster),
+    enabled: !!cluster,
     staleTime: 30000,
   });
 }
@@ -193,11 +193,11 @@ export function useUpdateCronJob() {
 }
 
 // Prometheus hooks
-export function usePrometheusResources(cluster?: string, namespace?: string) {
+export function usePrometheusResources(cluster?: string) {
   return useQuery({
-    queryKey: ['prometheus', cluster, namespace],
-    queryFn: () => apiClient.getPrometheusResources(cluster, namespace),
-    enabled: !!cluster && !!namespace,
+    queryKey: ['prometheus', cluster],
+    queryFn: () => apiClient.getPrometheusResources(cluster),
+    enabled: !!cluster,
     staleTime: 30000,
   });
 }

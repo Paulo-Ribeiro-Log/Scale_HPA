@@ -56,8 +56,8 @@ export const DashboardCharts = ({ selectedCluster }: DashboardChartsProps) => {
                 <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-64 animate-pulse"></div>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {[1, 2, 3, 4].map((i) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              {[1, 2, 3, 4, 5].map((i) => (
                 <div key={i} className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4 border border-slate-200/60 dark:border-slate-600/40">
                   <div className="h-4 bg-slate-200 dark:bg-slate-600 rounded w-20 animate-pulse mb-2"></div>
                   <div className="h-5 bg-slate-200 dark:bg-slate-600 rounded w-full animate-pulse"></div>
@@ -126,7 +126,7 @@ export const DashboardCharts = ({ selectedCluster }: DashboardChartsProps) => {
   }
 
   return (
-    <div className="p-6 h-full bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-slate-800 animate-in fade-in duration-500">
+    <div className="p-6 h-full bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-slate-800 animate-in fade-in duration-500 overflow-y-auto">
       {/* Header Section */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100 mb-2">
@@ -154,7 +154,7 @@ export const DashboardCharts = ({ selectedCluster }: DashboardChartsProps) => {
             </div>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4 border border-slate-200/60 dark:border-slate-600/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors duration-200">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
@@ -178,7 +178,7 @@ export const DashboardCharts = ({ selectedCluster }: DashboardChartsProps) => {
             <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4 border border-slate-200/60 dark:border-slate-600/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors duration-200">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
-                <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Kubernetes</span>
+                <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Kubernetes Version</span>
               </div>
               <p className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">
                 {clusterInfo?.kubernetesVersion}
@@ -187,40 +187,26 @@ export const DashboardCharts = ({ selectedCluster }: DashboardChartsProps) => {
             
             <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4 border border-slate-200/60 dark:border-slate-600/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors duration-200">
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
-                <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Namespace</span>
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Nodes</span>
               </div>
               <p className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">
-                {clusterInfo?.namespace || 'default'}
+                {clusterInfo?.nodeCount || 0}
+              </p>
+            </div>
+            
+            <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4 border border-slate-200/60 dark:border-slate-600/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors duration-200">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Pods</span>
+              </div>
+              <p className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">
+                {clusterInfo?.podCount || 0}
               </p>
             </div>
           </div>
           
-          <div className="flex justify-center gap-8 mt-6 pt-6 border-t border-slate-200/60 dark:border-slate-600/40">
-            <div className="flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg px-4 py-3 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all duration-200 cursor-pointer hover:scale-105">
-              <div className="p-2 bg-blue-500 rounded-lg shadow-lg">
-                <Monitor className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                  {clusterInfo?.nodeCount}
-                </p>
-                <p className="text-sm text-blue-600/80 dark:text-blue-400/80">Nodes</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3 bg-green-50 dark:bg-green-900/20 rounded-lg px-4 py-3 hover:bg-green-100 dark:hover:bg-green-900/30 transition-all duration-200 cursor-pointer hover:scale-105">
-              <div className="p-2 bg-green-500 rounded-lg shadow-lg">
-                <Package className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                  {clusterInfo?.podCount}
-                </p>
-                <p className="text-sm text-green-600/80 dark:text-green-400/80">Pods</p>
-              </div>
-            </div>
-          </div>
+
         </div>
       </Card>
 
@@ -243,23 +229,6 @@ export const DashboardCharts = ({ selectedCluster }: DashboardChartsProps) => {
           warningThreshold={70}
           dangerThreshold={90}
         />
-        
-        {/* Placeholder cards para futura implementação */}
-        <Card className="p-6 bg-gradient-card border-border/50 flex flex-col items-center justify-center gap-4 opacity-60">
-          <div className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-muted-foreground">CPU Usage Over Time</h3>
-          </div>
-          <p className="text-xs text-muted-foreground text-center">Chart visualization will appear here</p>
-        </Card>
-        
-        <Card className="p-6 bg-gradient-card border-border/50 flex flex-col items-center justify-center gap-4 opacity-60">
-          <div className="flex items-center gap-2">
-            <Package className="w-5 h-5 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-muted-foreground">Memory Usage Over Time</h3>
-          </div>
-          <p className="text-xs text-muted-foreground text-center">Chart visualization will appear here</p>
-        </Card>
       </div>
     </div>
   );

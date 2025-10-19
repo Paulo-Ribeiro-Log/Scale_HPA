@@ -12,7 +12,6 @@ import type { PrometheusResource } from '@/lib/api/types';
 
 interface PrometheusPageProps {
   selectedCluster: string;
-  selectedNamespace: string;
 }
 
 interface EditingResource {
@@ -29,20 +28,20 @@ interface EditingResource {
   memory_usage?: string;
 }
 
-export function PrometheusPage({ selectedCluster, selectedNamespace }: PrometheusPageProps) {
+export function PrometheusPage({ selectedCluster }: PrometheusPageProps) {
   const [selectedResources, setSelectedResources] = useState<Set<string>>(new Set());
   const [editingResource, setEditingResource] = useState<EditingResource | null>(null);
   const [isEditing, setIsEditing] = useState(false);
 
-  const { data: resources = [], isLoading, error, refetch } = usePrometheusResources(selectedCluster, selectedNamespace);
+  const { data: resources = [], isLoading, error, refetch } = usePrometheusResources(selectedCluster);
   const updateResourceMutation = useUpdatePrometheusResource();
 
-  if (!selectedCluster || !selectedNamespace) {
+  if (!selectedCluster) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <Activity className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-          <p className="text-muted-foreground">Selecione um cluster e namespace para ver recursos do Prometheus</p>
+          <p className="text-muted-foreground">Selecione um cluster para ver recursos do Prometheus</p>
         </div>
       </div>
     );
@@ -77,10 +76,10 @@ export function PrometheusPage({ selectedCluster, selectedNamespace }: Prometheu
         <div className="text-center">
           <Activity className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
           <p className="text-muted-foreground">
-            Nenhum recurso do Prometheus encontrado no namespace <strong>{selectedNamespace}</strong>
+            Nenhum recurso do Prometheus encontrado no cluster
           </p>
           <p className="text-xs text-muted-foreground mt-2">
-            Procurando por: prometheus, grafana, alertmanager, node-exporter, kube-state-metrics
+            Procurando por deployments, statefulsets e daemonsets com "prometheus" no nome
           </p>
         </div>
       </div>
@@ -181,9 +180,9 @@ export function PrometheusPage({ selectedCluster, selectedNamespace }: Prometheu
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Prometheus Stack</h2>
+          <h2 className="text-2xl font-bold">Recursos Prometheus</h2>
           <p className="text-muted-foreground">
-            {resources.length} recursos no namespace <strong>{selectedNamespace}</strong>
+            {resources.length} recursos encontrados no cluster <strong>{selectedCluster}</strong>
           </p>
         </div>
         

@@ -34,23 +34,29 @@ type CronJobResponse struct {
 	FailedJobs       int32   `json:"failed_jobs"`
 }
 
-// List retorna todos os CronJobs de um namespace
+// List retorna todos os CronJobs (de todos os namespaces se namespace não especificado)
 func (h *CronJobHandler) List(c *gin.Context) {
 	cluster := c.Query("cluster")
 	namespace := c.Query("namespace")
 
-	if cluster == "" || namespace == "" {
+	if cluster == "" {
 		c.JSON(400, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "MISSING_PARAMETERS",
-				"message": "Parameters 'cluster' and 'namespace' are required",
+				"message": "Parameter 'cluster' is required",
 			},
 		})
 		return
 	}
 
-	fmt.Printf("[DEBUG] CronJobs - Listing for cluster: %s, namespace: %s\n", cluster, namespace)
+	// Definir namespace para busca (vazio significa todos os namespaces)
+	namespaceFilter := namespace
+	if namespace == "" {
+		namespaceFilter = metav1.NamespaceAll
+	}
+
+	fmt.Printf("[DEBUG] CronJobs - Listing for cluster: %s, namespace filter: %s\n", cluster, namespaceFilter)
 
 	// Obter client do cluster
 	client, err := h.kubeManager.GetClient(cluster)
@@ -67,9 +73,9 @@ func (h *CronJobHandler) List(c *gin.Context) {
 	}
 
 	// Listar CronJobs
-	cronJobList, err := client.BatchV1().CronJobs(namespace).List(context.Background(), metav1.ListOptions{})
+	cronJobList, err := client.BatchV1().CronJobs(namespaceFilter).List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		fmt.Printf("[DEBUG] CronJobs - Error listing cronjobs in namespace %s: %v\n", namespace, err)
+		fmt.Printf("[DEBUG] CronJobs - Error listing cronjobs with filter %s: %v\n", namespaceFilter, err)
 		c.JSON(500, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -80,7 +86,7 @@ func (h *CronJobHandler) List(c *gin.Context) {
 		return
 	}
 
-	fmt.Printf("[DEBUG] CronJobs - Found %d cronjobs in namespace %s\n", len(cronJobList.Items), namespace)
+	fmt.Printf("[DEBUG] CronJobs - Found %d cronjobs with namespace filter %s\n", len(cronJobList.Items), namespaceFilter)
 
 	// Converter para resposta
 	cronJobs := make([]CronJobResponse, 0)

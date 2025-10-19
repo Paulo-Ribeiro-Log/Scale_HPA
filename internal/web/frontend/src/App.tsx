@@ -9,6 +9,7 @@ import { Login } from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import { apiClient } from "./lib/api/client";
 import { StagingProvider } from "./contexts/StagingContext";
+import { ThemeProvider } from "@/components/theme-provider";
 
 const queryClient = new QueryClient();
 
@@ -44,40 +45,42 @@ const App = () => {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <StagingProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <Routes>
-            <Route
-              path="/login"
-              element={
-                isAuthenticated ? (
-                  <Navigate to="/" replace />
-                ) : (
-                  <Login onLogin={handleLogin} />
-                )
-              }
-            />
-            <Route
-              path="/"
-              element={
-                isAuthenticated ? (
-                  <Index onLogout={handleLogout} />
-                ) : (
-                  <Navigate to="/login" replace />
-                )
-              }
-            />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
-      </StagingProvider>
-    </QueryClientProvider>
+    <ThemeProvider defaultTheme="system" storageKey="k8s-hpa-theme">
+      <QueryClientProvider client={queryClient}>
+        <StagingProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+              <Route
+                path="/login"
+                element={
+                  isAuthenticated ? (
+                    <Navigate to="/" replace />
+                  ) : (
+                    <Login onLogin={handleLogin} />
+                  )
+                }
+              />
+              <Route
+                path="/"
+                element={
+                  isAuthenticated ? (
+                    <Index onLogout={handleLogout} />
+                  ) : (
+                    <Navigate to="/login" replace />
+                  )
+                }
+              />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </StagingProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 };
 

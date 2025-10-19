@@ -10,22 +10,21 @@ import type { CronJob } from '@/lib/api/types';
 
 interface CronJobsPageProps {
   selectedCluster: string;
-  selectedNamespace: string;
 }
 
-export function CronJobsPage({ selectedCluster, selectedNamespace }: CronJobsPageProps) {
+export function CronJobsPage({ selectedCluster }: CronJobsPageProps) {
   const [selectedJobs, setSelectedJobs] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState<Set<string>>(new Set());
 
-  const { data: cronJobs = [], isLoading, error, refetch } = useCronJobs(selectedCluster, selectedNamespace);
+  const { data: cronJobs = [], isLoading, error, refetch } = useCronJobs(selectedCluster);
   const updateCronJobMutation = useUpdateCronJob();
 
-  if (!selectedCluster || !selectedNamespace) {
+  if (!selectedCluster) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <Calendar className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-          <p className="text-muted-foreground">Selecione um cluster e namespace para ver os CronJobs</p>
+          <p className="text-muted-foreground">Selecione um cluster para ver os CronJobs</p>
         </div>
       </div>
     );
@@ -59,7 +58,7 @@ export function CronJobsPage({ selectedCluster, selectedNamespace }: CronJobsPag
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <Calendar className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-          <p className="text-muted-foreground">Nenhum CronJob encontrado no namespace <strong>{selectedNamespace}</strong></p>
+          <p className="text-muted-foreground">Nenhum CronJob encontrado no cluster</p>
         </div>
       </div>
     );
@@ -135,7 +134,7 @@ export function CronJobsPage({ selectedCluster, selectedNamespace }: CronJobsPag
         <div>
           <h2 className="text-2xl font-bold">CronJobs</h2>
           <p className="text-muted-foreground">
-            {cronJobs.length} CronJobs no namespace <strong>{selectedNamespace}</strong>
+            {cronJobs.length} CronJobs encontrados no cluster <strong>{selectedCluster}</strong>
           </p>
         </div>
         

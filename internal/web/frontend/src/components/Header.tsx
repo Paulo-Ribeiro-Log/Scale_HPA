@@ -7,6 +7,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { LogOut, CheckCircle, Zap, Save, FolderOpen } from "lucide-react";
+import { ModeToggle } from "@/components/mode-toggle";
 
 interface HeaderProps {
   selectedCluster: string;
@@ -107,6 +108,8 @@ export const Header = ({
         )}
         
         <span className="text-white/90 text-sm">{userInfo}</span>
+        
+        <ModeToggle />
         
         <Button
           variant="secondary"

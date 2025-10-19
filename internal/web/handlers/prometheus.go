@@ -39,17 +39,17 @@ type PrometheusResource struct {
 	MemoryUsage          string `json:"memory_usage,omitempty"` // Uso atual (se disponível)
 }
 
-// List retorna todos os recursos do Prometheus Stack em um namespace
+// List retorna todos os recursos do Prometheus Stack (em todos os namespaces se namespace não especificado)
 func (h *PrometheusHandler) List(c *gin.Context) {
 	cluster := c.Query("cluster")
 	namespace := c.Query("namespace")
 
-	if cluster == "" || namespace == "" {
+	if cluster == "" {
 		c.JSON(400, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "MISSING_PARAMETERS",
-				"message": "Parameters 'cluster' and 'namespace' are required",
+				"message": "Parameter 'cluster' is required",
 			},
 		})
 		return
@@ -70,14 +70,20 @@ func (h *PrometheusHandler) List(c *gin.Context) {
 
 	resources := make([]PrometheusResource, 0)
 
+	// Definir namespace para busca (vazio significa todos os namespaces)
+	namespaceFilter := namespace
+	if namespace == "" {
+		namespaceFilter = metav1.NamespaceAll
+	}
+
 	// Listar Deployments relacionados ao Prometheus/Grafana
-	deployments, err := client.AppsV1().Deployments(namespace).List(context.Background(), metav1.ListOptions{})
+	deployments, err := client.AppsV1().Deployments(namespaceFilter).List(context.Background(), metav1.ListOptions{})
 	if err == nil {
-		fmt.Printf("[DEBUG] Found %d deployments in namespace %s\n", len(deployments.Items), namespace)
+		fmt.Printf("[DEBUG] Found %d deployments in namespace filter '%s'\n", len(deployments.Items), namespaceFilter)
 		for _, dep := range deployments.Items {
-			fmt.Printf("[DEBUG] Checking deployment: %s\n", dep.Name)
-			if isPrometheusRelated(dep.Name) || isMonitoringNamespace(namespace) {
-				fmt.Printf("[DEBUG] ✅ Deployment %s IS Prometheus-related (name match or monitoring namespace)\n", dep.Name)
+			fmt.Printf("[DEBUG] Checking deployment: %s in namespace %s\n", dep.Name, dep.Namespace)
+			if isPrometheusRelated(dep.Name) {
+				fmt.Printf("[DEBUG] ✅ Deployment %s IS Prometheus-related (name match)\n", dep.Name)
 				resource := extractResourceFromDeployment(&dep)
 				resources = append(resources, resource)
 			} else {
@@ -89,13 +95,13 @@ func (h *PrometheusHandler) List(c *gin.Context) {
 	}
 
 	// Listar StatefulSets relacionados ao Prometheus
-	statefulSets, err := client.AppsV1().StatefulSets(namespace).List(context.Background(), metav1.ListOptions{})
+	statefulSets, err := client.AppsV1().StatefulSets(namespaceFilter).List(context.Background(), metav1.ListOptions{})
 	if err == nil {
-		fmt.Printf("[DEBUG] Found %d statefulsets in namespace %s\n", len(statefulSets.Items), namespace)
+		fmt.Printf("[DEBUG] Found %d statefulsets in namespace filter '%s'\n", len(statefulSets.Items), namespaceFilter)
 		for _, sts := range statefulSets.Items {
-			fmt.Printf("[DEBUG] Checking statefulset: %s\n", sts.Name)
-			if isPrometheusRelated(sts.Name) || isMonitoringNamespace(namespace) {
-				fmt.Printf("[DEBUG] ✅ StatefulSet %s IS Prometheus-related (name match or monitoring namespace)\n", sts.Name)
+			fmt.Printf("[DEBUG] Checking statefulset: %s in namespace %s\n", sts.Name, sts.Namespace)
+			if isPrometheusRelated(sts.Name) {
+				fmt.Printf("[DEBUG] ✅ StatefulSet %s IS Prometheus-related (name match)\n", sts.Name)
 				resource := extractResourceFromStatefulSet(&sts)
 				resources = append(resources, resource)
 			} else {
@@ -107,13 +113,13 @@ func (h *PrometheusHandler) List(c *gin.Context) {
 	}
 
 	// Listar DaemonSets relacionados ao Prometheus
-	daemonSets, err := client.AppsV1().DaemonSets(namespace).List(context.Background(), metav1.ListOptions{})
+	daemonSets, err := client.AppsV1().DaemonSets(namespaceFilter).List(context.Background(), metav1.ListOptions{})
 	if err == nil {
-		fmt.Printf("[DEBUG] Found %d daemonsets in namespace %s\n", len(daemonSets.Items), namespace)
+		fmt.Printf("[DEBUG] Found %d daemonsets in namespace filter '%s'\n", len(daemonSets.Items), namespaceFilter)
 		for _, ds := range daemonSets.Items {
-			fmt.Printf("[DEBUG] Checking daemonset: %s\n", ds.Name)
-			if isPrometheusRelated(ds.Name) || isMonitoringNamespace(namespace) {
-				fmt.Printf("[DEBUG] ✅ DaemonSet %s IS Prometheus-related (name match or monitoring namespace)\n", ds.Name)
+			fmt.Printf("[DEBUG] Checking daemonset: %s in namespace %s\n", ds.Name, ds.Namespace)
+			if isPrometheusRelated(ds.Name) {
+				fmt.Printf("[DEBUG] ✅ DaemonSet %s IS Prometheus-related (name match)\n", ds.Name)
 				resource := extractResourceFromDaemonSet(&ds)
 				resources = append(resources, resource)
 			} else {
