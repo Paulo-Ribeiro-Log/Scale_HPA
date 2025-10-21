@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,8 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Progress } from "@/components/ui/progress";
-import { CheckCircle, XCircle, ArrowRight, Loader2, RefreshCw } from "lucide-react";
+import { CheckCircle, XCircle, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 import type { HPA } from "@/lib/api/types";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api/client";
@@ -24,19 +23,11 @@ interface ApplyAllModalProps {
   onClear: () => void;
 }
 
-interface RolloutProgress {
-  type: "deployment" | "daemonset" | "statefulset";
-  status: "pending" | "in_progress" | "completed" | "failed";
-  progress: number; // 0-100
-  message?: string;
-}
+type HPAStatus = 'idle' | 'applying' | 'success' | 'error' | 'warning';
 
-interface ApplyResult {
-  key: string;
-  hpa: HPA;
-  success: boolean;
-  error?: string;
-  rollouts?: RolloutProgress[];
+interface HPAApplyState {
+  status: HPAStatus;
+  message?: string;
 }
 
 export const ApplyAllModal = ({
@@ -47,187 +38,95 @@ export const ApplyAllModal = ({
   onClear,
 }: ApplyAllModalProps) => {
   const [isApplying, setIsApplying] = useState(false);
-  const [results, setResults] = useState<ApplyResult[]>([]);
-  const [showResults, setShowResults] = useState(false);
+  const [applyingIndividual, setApplyingIndividual] = useState<string | null>(null);
+  const [hpaStates, setHpaStates] = useState<Record<string, HPAApplyState>>({});
 
-  const simulateRolloutProgress = async (
-    key: string,
-    rolloutType: "deployment" | "daemonset" | "statefulset"
-  ): Promise<void> => {
-    return new Promise((resolve) => {
-      let progress = 0;
-      const interval = setInterval(() => {
-        progress += 10;
+  const handleApplyIndividual = async (key: string, current: HPA) => {
+    setApplyingIndividual(key);
+    setHpaStates(prev => ({ ...prev, [key]: { status: 'applying' } }));
+    
+    try {
+      await apiClient.updateHPA(
+        current.cluster,
+        current.namespace,
+        current.name,
+        current
+      );
 
-        setResults((prev) =>
-          prev.map((r) =>
-            r.key === key
-              ? {
-                  ...r,
-                  rollouts: r.rollouts?.map((ro) =>
-                    ro.type === rolloutType
-                      ? {
-                          ...ro,
-                          status: progress >= 100 ? "completed" : "in_progress",
-                          progress,
-                          message:
-                            progress >= 100
-                              ? "Rollout concluído"
-                              : `Reiniciando pods... ${progress}%`,
-                        }
-                      : ro
-                  ),
-                }
-              : r
-          )
-        );
-
-        if (progress >= 100) {
-          clearInterval(interval);
-          resolve();
-        }
-      }, 300);
-    });
+      setHpaStates(prev => ({ ...prev, [key]: { status: 'success', message: 'Aplicado com sucesso' } }));
+      toast.success(`✅ HPA ${current.name} aplicado com sucesso`);
+      onApplied();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
+      setHpaStates(prev => ({ ...prev, [key]: { status: 'error', message: errorMessage } }));
+      toast.error(`❌ Erro ao aplicar ${current.name}`);
+    } finally {
+      setApplyingIndividual(null);
+    }
   };
 
   const handleApplyAll = async () => {
     setIsApplying(true);
-    setShowResults(true);
-    const newResults: ApplyResult[] = [];
 
-    for (const { key, current, original } of modifiedHPAs) {
+    for (const { key, current } of modifiedHPAs) {
+      setHpaStates(prev => ({ ...prev, [key]: { status: 'applying' } }));
+      
       try {
-        // Build update payload
-        const updates: any = {};
-
-        // HPA config changes
-        if (current.min_replicas !== original.min_replicas) {
-          updates.min_replicas = current.min_replicas;
-        }
-        if (current.max_replicas !== original.max_replicas) {
-          updates.max_replicas = current.max_replicas;
-        }
-        if (current.target_cpu !== original.target_cpu) {
-          updates.target_cpu = current.target_cpu;
-        }
-        if (current.target_memory !== original.target_memory) {
-          updates.target_memory = current.target_memory;
-        }
-
-        // Resource changes
-        if (current.target_cpu_request !== original.target_cpu_request) {
-          updates.target_cpu_request = current.target_cpu_request;
-        }
-        if (current.target_cpu_limit !== original.target_cpu_limit) {
-          updates.target_cpu_limit = current.target_cpu_limit;
-        }
-        if (current.target_memory_request !== original.target_memory_request) {
-          updates.target_memory_request = current.target_memory_request;
-        }
-        if (current.target_memory_limit !== original.target_memory_limit) {
-          updates.target_memory_limit = current.target_memory_limit;
-        }
-
-        // Rollout options
-        updates.perform_rollout = current.perform_rollout || false;
-        updates.perform_daemonset_rollout = current.perform_daemonset_rollout || false;
-        updates.perform_statefulset_rollout = current.perform_statefulset_rollout || false;
-
-        // Initialize rollouts array
-        const rollouts: RolloutProgress[] = [];
-        if (updates.perform_rollout) {
-          rollouts.push({
-            type: "deployment",
-            status: "pending",
-            progress: 0,
-            message: "Aguardando início...",
-          });
-        }
-        if (updates.perform_daemonset_rollout) {
-          rollouts.push({
-            type: "daemonset",
-            status: "pending",
-            progress: 0,
-            message: "Aguardando início...",
-          });
-        }
-        if (updates.perform_statefulset_rollout) {
-          rollouts.push({
-            type: "statefulset",
-            status: "pending",
-            progress: 0,
-            message: "Aguardando início...",
-          });
-        }
-
-        // Add to results with pending rollouts
-        const result: ApplyResult = {
-          key,
-          hpa: current,
-          success: true,
-          rollouts: rollouts.length > 0 ? rollouts : undefined,
-        };
-        newResults.push(result);
-        setResults([...newResults]);
-
-        // Apply HPA changes - Send complete HPA object instead of partial updates
-        // The backend expects a full HPA object via c.ShouldBindJSON(&hpa)
         await apiClient.updateHPA(
           current.cluster,
           current.namespace,
           current.name,
           current
         );
-
-        // Simulate rollout progress for each type
-        if (updates.perform_rollout) {
-          await simulateRolloutProgress(key, "deployment");
-        }
-        if (updates.perform_daemonset_rollout) {
-          await simulateRolloutProgress(key, "daemonset");
-        }
-        if (updates.perform_statefulset_rollout) {
-          await simulateRolloutProgress(key, "statefulset");
-        }
+        
+        setHpaStates(prev => ({ ...prev, [key]: { status: 'success', message: 'Aplicado com sucesso' } }));
       } catch (error) {
-        newResults.push({
-          key,
-          hpa: current,
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        });
-        setResults([...newResults]);
+        const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
+        setHpaStates(prev => ({ ...prev, [key]: { status: 'error', message: errorMessage } }));
       }
     }
 
     setIsApplying(false);
-
-    const successCount = newResults.filter((r) => r.success).length;
-    const failCount = newResults.filter((r) => !r.success).length;
-
-    if (failCount === 0) {
-      toast.success(`✅ ${successCount} HPAs aplicados com sucesso`);
-      onClear();
-      onApplied();
-      setTimeout(() => {
-        onOpenChange(false);
-        setShowResults(false);
-        setResults([]);
-      }, 2000);
+    onApplied();
+    
+    const successCount = Object.values(hpaStates).filter(s => s.status === 'success').length;
+    const errorCount = Object.values(hpaStates).filter(s => s.status === 'error').length;
+    
+    if (errorCount === 0) {
+      toast.success(`✅ ${successCount} HPA(s) aplicado(s) com sucesso`);
     } else {
-      toast.error(`❌ ${failCount} HPAs falharam, ${successCount} aplicados`);
+      toast.error(`⚠️ ${errorCount} erro(s) ao aplicar HPAs`);
+    }
+  };
+
+  const handleClose = () => {
+    if (!isApplying && !applyingIndividual) {
+      onOpenChange(false);
+      setHpaStates({});
+    }
+  };
+
+  const renderStatusIcon = (status: HPAStatus) => {
+    switch (status) {
+      case 'applying':
+        return <Loader2 className="w-4 h-4 animate-spin text-blue-500" />;
+      case 'success':
+        return <CheckCircle className="w-4 h-4 text-green-500" />;
+      case 'error':
+        return <XCircle className="w-4 h-4 text-red-500" />;
+      case 'warning':
+        return <AlertCircle className="w-4 h-4 text-yellow-500" />;
+      default:
+        return null;
     }
   };
 
   const renderChange = (label: string, before: any, after: any) => {
-    // Normalize null/undefined to null for comparison
     const normalizedBefore = before ?? null;
     const normalizedAfter = after ?? null;
 
-    // Don't show if both are null/undefined (no real change)
     if (normalizedBefore === normalizedAfter) return null;
 
-    // Don't show if both are empty/null (— → —)
     if ((normalizedBefore === null || normalizedBefore === "") &&
         (normalizedAfter === null || normalizedAfter === "")) {
       return null;
@@ -248,51 +147,35 @@ export const ApplyAllModal = ({
 
     changes.push(renderChange("Min Replicas", original.min_replicas, current.min_replicas));
     changes.push(renderChange("Max Replicas", original.max_replicas, current.max_replicas));
-    changes.push(
-      renderChange("Target CPU (%)", original.target_cpu, current.target_cpu)
-    );
-    changes.push(
-      renderChange("Target Memory (%)", original.target_memory, current.target_memory)
-    );
-    changes.push(
-      renderChange("CPU Request", original.target_cpu_request, current.target_cpu_request)
-    );
-    changes.push(
-      renderChange("CPU Limit", original.target_cpu_limit, current.target_cpu_limit)
-    );
-    changes.push(
-      renderChange(
-        "Memory Request",
-        original.target_memory_request,
-        current.target_memory_request
-      )
-    );
-    changes.push(
-      renderChange("Memory Limit", original.target_memory_limit, current.target_memory_limit)
-    );
+    changes.push(renderChange("Target CPU (%)", original.target_cpu, current.target_cpu));
+    changes.push(renderChange("Target Memory (%)", original.target_memory, current.target_memory));
+    changes.push(renderChange("CPU Request", original.target_cpu_request, current.target_cpu_request));
+    changes.push(renderChange("CPU Limit", original.target_cpu_limit, current.target_cpu_limit));
+    changes.push(renderChange("Memory Request", original.target_memory_request, current.target_memory_request));
+    changes.push(renderChange("Memory Limit", original.target_memory_limit, current.target_memory_limit));
 
     // Rollout options
     if (current.perform_rollout && !original.perform_rollout) {
       changes.push(
-        <div key="rollout-deployment" className="flex justify-between items-center py-1">
-          <span className="text-sm text-muted-foreground">Rollout Deployment</span>
-          <span className="text-sm font-medium text-primary">✓ Ativado</span>
+        <div key="rollout-deployment" className="flex items-center gap-2 text-sm py-1">
+          <span className="text-muted-foreground min-w-[140px]">Rollout Deployment:</span>
+          <span className="text-primary font-medium">✓ Ativado</span>
         </div>
       );
     }
     if (current.perform_daemonset_rollout && !original.perform_daemonset_rollout) {
       changes.push(
-        <div key="rollout-daemonset" className="flex justify-between items-center py-1">
-          <span className="text-sm text-muted-foreground">Rollout DaemonSet</span>
-          <span className="text-sm font-medium text-primary">✓ Ativado</span>
+        <div key="rollout-daemonset" className="flex items-center gap-2 text-sm py-1">
+          <span className="text-muted-foreground min-w-[140px]">Rollout DaemonSet:</span>
+          <span className="text-primary font-medium">✓ Ativado</span>
         </div>
       );
     }
     if (current.perform_statefulset_rollout && !original.perform_statefulset_rollout) {
       changes.push(
-        <div key="rollout-statefulset" className="flex justify-between items-center py-1">
-          <span className="text-sm text-muted-foreground">Rollout StatefulSet</span>
-          <span className="text-sm font-medium text-primary">✓ Ativado</span>
+        <div key="rollout-statefulset" className="flex items-center gap-2 text-sm py-1">
+          <span className="text-muted-foreground min-w-[140px]">Rollout StatefulSet:</span>
+          <span className="text-primary font-medium">✓ Ativado</span>
         </div>
       );
     }
@@ -300,185 +183,92 @@ export const ApplyAllModal = ({
     return changes.filter((c) => c !== null);
   };
 
-  const handleClose = () => {
-    if (!isApplying) {
-      onOpenChange(false);
-      setShowResults(false);
-      setResults([]);
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-3xl max-h-[80vh]">
         <DialogHeader>
-          <DialogTitle>
-            {showResults ? "Resultados da Aplicação" : "Confirmar Alterações"}
-          </DialogTitle>
+          <DialogTitle>Confirmar Alterações</DialogTitle>
           <DialogDescription>
-            {showResults
-              ? "Progresso da aplicação das alterações"
-              : `${modifiedHPAs.length} HPA${modifiedHPAs.length > 1 ? "s" : ""} será${modifiedHPAs.length > 1 ? "ão" : ""} modificado${modifiedHPAs.length > 1 ? "s" : ""} no cluster`}
+            {modifiedHPAs.length} HPA{modifiedHPAs.length > 1 ? "s" : ""} será{modifiedHPAs.length > 1 ? "ão" : ""} modificado{modifiedHPAs.length > 1 ? "s" : ""} no cluster
           </DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="max-h-[50vh] pr-4">
-          {!showResults ? (
-            // Preview mode - show all changes
-            <div className="space-y-4">
-              {modifiedHPAs.map(({ key, current, original }) => {
-                const changes = renderHPAChanges(current, original);
-                if (changes.length === 0) return null;
+          <div className="space-y-4">
+            {modifiedHPAs.map(({ key, current, original }) => {
+              const changes = renderHPAChanges(current, original);
+              if (changes.length === 0) return null;
 
-                return (
-                  <div key={key} className="border rounded-lg p-4 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-semibold text-base">{current.name}</h4>
-                      <span className="text-xs text-muted-foreground">
-                        {current.namespace}
-                      </span>
-                    </div>
-                    <Separator />
-                    <div className="space-y-1">{changes}</div>
-
-                    {/* Rollout options */}
-                    {(current.perform_rollout ||
-                      current.perform_daemonset_rollout ||
-                      current.perform_statefulset_rollout) && (
-                      <>
-                        <Separator />
-                        <div className="text-sm text-muted-foreground">
-                          <span className="font-medium">Rollouts:</span>
-                          {current.perform_rollout && " 🔄 Deployment"}
-                          {current.perform_daemonset_rollout && " 🔄 DaemonSet"}
-                          {current.perform_statefulset_rollout && " 🔄 StatefulSet"}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            // Results mode - show progress
-            <div className="space-y-3">
-              {modifiedHPAs.map(({ key, current }) => {
-                const result = results.find((r) => r.key === key);
-                const isPending = !result;
-                const isSuccess = result?.success;
-                const isError = result && !result.success;
-                const hasRollouts = result?.rollouts && result.rollouts.length > 0;
-
-                return (
-                  <div
-                    key={key}
-                    className={`p-3 rounded-lg border ${
-                      isSuccess
-                        ? "bg-green-50 border-green-200"
-                        : isError
-                          ? "bg-red-50 border-red-200"
-                          : "bg-muted"
-                    }`}
-                  >
+              const hpaState = hpaStates[key];
+              const hasBeenApplied = hpaState && (hpaState.status === 'success' || hpaState.status === 'error' || hpaState.status === 'warning');
+              
+              return (
+                <div key={key} className="border rounded-lg p-4 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-3">
-                      {isPending && (
-                        <Loader2 className="w-5 h-5 text-blue-500 animate-spin flex-shrink-0" />
-                      )}
-                      {isSuccess && <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />}
-                      {isError && <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />}
-
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm truncate">
-                          {current.namespace}/{current.name}
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-semibold text-base">{current.name}</h4>
+                        <span className="text-xs text-muted-foreground">
+                          {current.namespace}
+                        </span>
+                      </div>
+                      {hpaState && (
+                        <div className="flex items-center gap-1.5">
+                          {renderStatusIcon(hpaState.status)}
+                          {hpaState.message && hpaState.status !== 'applying' && (
+                            <span className="text-xs text-muted-foreground">
+                              {hpaState.message}
+                            </span>
+                          )}
                         </div>
-                        {isError && (
-                          <div className="text-xs text-red-600 mt-1">
-                            {result.error}
-                          </div>
-                        )}
-                      </div>
+                      )}
                     </div>
-
-                    {/* Rollout Progress Bars */}
-                    {hasRollouts && (
-                      <div className="mt-3 space-y-2 pl-8">
-                        {result.rollouts!.map((rollout, idx) => {
-                          const icon =
-                            rollout.type === "deployment"
-                              ? "🚀"
-                              : rollout.type === "daemonset"
-                                ? "⚙️"
-                                : "📦";
-                          const label =
-                            rollout.type === "deployment"
-                              ? "Deployment"
-                              : rollout.type === "daemonset"
-                                ? "DaemonSet"
-                                : "StatefulSet";
-
-                          return (
-                            <div key={idx} className="space-y-1">
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="flex items-center gap-1.5">
-                                  {rollout.status === "in_progress" && (
-                                    <RefreshCw className="w-3 h-3 animate-spin" />
-                                  )}
-                                  {rollout.status === "completed" && (
-                                    <CheckCircle className="w-3 h-3 text-green-600" />
-                                  )}
-                                  {rollout.status === "pending" && (
-                                    <Loader2 className="w-3 h-3 text-gray-400" />
-                                  )}
-                                  <span className="font-medium">
-                                    {icon} {label}
-                                  </span>
-                                </span>
-                                <span className="text-muted-foreground">
-                                  {rollout.message || `${rollout.progress}%`}
-                                </span>
-                              </div>
-                              <Progress
-                                value={rollout.progress}
-                                className="h-2"
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleApplyIndividual(key, current)}
+                      disabled={isApplying || applyingIndividual !== null}
+                      className="shrink-0"
+                    >
+                      {applyingIndividual === key ? (
+                        <>
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                          Aplicando...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-3 h-3 mr-1" />
+                          {hasBeenApplied ? 'Re-aplicar' : 'Aplicar'}
+                        </>
+                      )}
+                    </Button>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  <Separator />
+                  <div className="space-y-1">{changes}</div>
+                </div>
+              );
+            })}
+          </div>
         </ScrollArea>
 
         <DialogFooter>
-          {!showResults ? (
-            <>
-              <Button variant="outline" onClick={handleClose} disabled={isApplying}>
-                Cancelar
-              </Button>
-              <Button
-                onClick={handleApplyAll}
-                disabled={isApplying}
-                className="bg-success hover:bg-success/90"
-              >
-                {isApplying ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Aplicando...
-                  </>
-                ) : (
-                  `✅ Aplicar ${modifiedHPAs.length} HPA${modifiedHPAs.length > 1 ? "s" : ""}`
-                )}
-              </Button>
-            </>
-          ) : (
-            <Button onClick={handleClose} disabled={isApplying}>
-              {isApplying ? "Aguarde..." : "Fechar"}
-            </Button>
-          )}
+          <Button variant="outline" onClick={handleClose} disabled={isApplying || applyingIndividual !== null}>
+            {isApplying || applyingIndividual !== null ? "Aguarde..." : "Fechar"}
+          </Button>
+          <Button
+            onClick={handleApplyAll}
+            disabled={isApplying || applyingIndividual !== null}
+            className="bg-success hover:bg-success/90"
+          >
+            {isApplying ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Aplicando todos...
+              </>
+            ) : (
+              `✅ Aplicar Todos (${modifiedHPAs.length})`
+            )}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
