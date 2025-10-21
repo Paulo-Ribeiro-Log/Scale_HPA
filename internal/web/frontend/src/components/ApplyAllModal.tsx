@@ -271,6 +271,32 @@ export const ApplyAllModal = ({
       renderChange("Memory Limit", original.target_memory_limit, current.target_memory_limit)
     );
 
+    // Rollout options
+    if (current.perform_rollout && !original.perform_rollout) {
+      changes.push(
+        <div key="rollout-deployment" className="flex justify-between items-center py-1">
+          <span className="text-sm text-muted-foreground">Rollout Deployment</span>
+          <span className="text-sm font-medium text-primary">✓ Ativado</span>
+        </div>
+      );
+    }
+    if (current.perform_daemonset_rollout && !original.perform_daemonset_rollout) {
+      changes.push(
+        <div key="rollout-daemonset" className="flex justify-between items-center py-1">
+          <span className="text-sm text-muted-foreground">Rollout DaemonSet</span>
+          <span className="text-sm font-medium text-primary">✓ Ativado</span>
+        </div>
+      );
+    }
+    if (current.perform_statefulset_rollout && !original.perform_statefulset_rollout) {
+      changes.push(
+        <div key="rollout-statefulset" className="flex justify-between items-center py-1">
+          <span className="text-sm text-muted-foreground">Rollout StatefulSet</span>
+          <span className="text-sm font-medium text-primary">✓ Ativado</span>
+        </div>
+      );
+    }
+
     return changes.filter((c) => c !== null);
   };
 

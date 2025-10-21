@@ -3,10 +3,11 @@ package handlers
 import (
 	"fmt"
 
-	"github.com/gin-gonic/gin"
 	"k8s-hpa-manager/internal/config"
 	kubeclient "k8s-hpa-manager/internal/kubernetes"
 	"k8s-hpa-manager/internal/models"
+
+	"github.com/gin-gonic/gin"
 )
 
 // HPAHandler gerencia requisições relacionadas a HPAs
@@ -228,8 +229,19 @@ func (h *HPAHandler) Update(c *gin.Context) {
 		return
 	}
 
+	updatedHPA, err := kubeClient.GetHPA(c.Request.Context(), namespace, name)
+	if err != nil {
+		fmt.Printf("[HPAHandler.Update] ⚠️ Failed to fetch updated HPA: %v\n", err)
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": fmt.Sprintf("HPA %s/%s updated successfully", namespace, name),
+		})
+		return
+	}
+
 	c.JSON(200, gin.H{
 		"success": true,
 		"message": fmt.Sprintf("HPA %s/%s updated successfully", namespace, name),
+		"data":    updatedHPA,
 	})
 }

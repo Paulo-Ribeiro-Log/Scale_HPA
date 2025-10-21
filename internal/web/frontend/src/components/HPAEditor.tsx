@@ -39,8 +39,10 @@ export const HPAEditor = ({ hpa, onApplied, onApply }: HPAEditorProps) => {
   const [isSaving, setIsSaving] = useState(false);
 
   // Initialize form when HPA changes
+  // Use a combination of hpa reference + key fields to detect updates
   useEffect(() => {
     if (hpa) {
+      console.log('[HPAEditor] Resetting form with HPA:', hpa.name);
       setMinReplicas(hpa.min_replicas ?? 0);
       setMaxReplicas(hpa.max_replicas ?? 1);
       setTargetCPU(hpa.target_cpu ?? undefined);
@@ -56,7 +58,7 @@ export const HPAEditor = ({ hpa, onApplied, onApply }: HPAEditorProps) => {
       setPerformDaemonSetRollout(false);
       setPerformStatefulSetRollout(false);
     }
-  }, [hpa]);
+  }, [hpa, hpa?.min_replicas, hpa?.max_replicas, hpa?.target_cpu, hpa?.target_memory]);
 
   if (!hpa) {
     return (
@@ -160,7 +162,10 @@ export const HPAEditor = ({ hpa, onApplied, onApply }: HPAEditorProps) => {
     targetCpuRequest !== (hpa.target_cpu_request ?? hpa.original_values?.cpu_request ?? "") ||
     targetCpuLimit !== (hpa.target_cpu_limit ?? hpa.original_values?.cpu_limit ?? "") ||
     targetMemoryRequest !== (hpa.target_memory_request ?? hpa.original_values?.memory_request ?? "") ||
-    targetMemoryLimit !== (hpa.target_memory_limit ?? hpa.original_values?.memory_limit ?? "");
+    targetMemoryLimit !== (hpa.target_memory_limit ?? hpa.original_values?.memory_limit ?? "") ||
+    performRollout !== false ||
+    performDaemonSetRollout !== false ||
+    performStatefulSetRollout !== false;
 
   return (
     <div className="space-y-4 animate-fade-in">

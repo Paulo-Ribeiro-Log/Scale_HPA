@@ -46,7 +46,8 @@ func NewServer(kubeconfig string, port int, debug bool) (*Server, error) {
 	if !debug {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	router := gin.Default()
+	// gin.New() ao invés de gin.Default() para controle manual dos middlewares
+	router := gin.New()
 
 	server := &Server{
 		router:      router,

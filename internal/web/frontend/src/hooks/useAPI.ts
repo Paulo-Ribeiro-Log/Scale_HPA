@@ -74,16 +74,23 @@ export function useHPAs(cluster?: string, namespace?: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchHPAs = async () => {
+  const fetchHPAs = async (bypassCache: boolean = false, overrideNamespace?: string | null) => {
     if (!cluster) {
       setHPAs([]);
       return;
     }
 
+    // Se overrideNamespace for null, ignora o namespace (busca todos)
+    // Se for undefined, usa o namespace da prop
+    const nsToUse = overrideNamespace === null ? undefined : (overrideNamespace !== undefined ? overrideNamespace : namespace);
+    
+    console.log(`[useHPAs.fetchHPAs] Fetching - cluster: "${cluster}", namespace: "${nsToUse || 'all'}", bypassCache: ${bypassCache}`);
+
     try {
       setLoading(true);
       setError(null);
-      const data = await apiClient.getHPAs(cluster, namespace);
+      const data = await apiClient.getHPAs(cluster, nsToUse, bypassCache);
+      console.log(`[useHPAs.fetchHPAs] Received ${data.length} HPAs`);
       setHPAs(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch HPAs");
@@ -97,10 +104,36 @@ export function useHPAs(cluster?: string, namespace?: string) {
     hpaNamespace: string,
     hpaName: string,
     updates: Partial<HPA>
-  ) => {
+  ): Promise<HPA> => {
     try {
       await apiClient.updateHPA(hpaCluster, hpaNamespace, hpaName, updates);
-      await fetchHPAs(); // Refresh list
+      const fresh = await apiClient.getHPA(hpaCluster, hpaNamespace, hpaName, true);
+
+      setHPAs((prev) => {
+        const index = prev.findIndex(
+          (item) =>
+            item.cluster === fresh.cluster &&
+            item.namespace === fresh.namespace &&
+            item.name === fresh.name
+        );
+
+        if (index === -1) {
+          return [...prev, fresh];
+        }
+
+        const next = [...prev];
+        next[index] = fresh;
+        return next;
+      });
+
+      // Disparar evento de rescan para recarregar a lista correta
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("rescanHPAs", {
+          detail: { cluster: hpaCluster, namespace: hpaNamespace }
+        }));
+      }
+
+      return fresh;
     } catch (err) {
       throw err;
     }
@@ -108,6 +141,38 @@ export function useHPAs(cluster?: string, namespace?: string) {
 
   useEffect(() => {
     fetchHPAs();
+  }, [cluster, namespace]);
+
+  useEffect(() => {
+    const handleRescan = (event: Event) => {
+      const customEvent = event as CustomEvent<{ cluster?: string; namespace?: string }>;
+      const targetCluster = customEvent.detail?.cluster;
+
+      console.log(`[useHPAs] Rescan event received - Event cluster: "${targetCluster}", Hook cluster: "${cluster}"`);
+
+      // Se o evento não especificou cluster, recarrega todos
+      // Se especificou, só recarrega se for o mesmo cluster
+      if (targetCluster && targetCluster !== cluster) {
+        console.log(`[useHPAs] Ignoring rescan - cluster mismatch`);
+        return;
+      }
+
+      // No rescan, sempre buscar TODOS os HPAs do cluster (ignorar filtro de namespace)
+      console.log(`[useHPAs] Rescanning ALL HPAs for cluster: ${cluster} (ignoring namespace filter)`);
+      fetchHPAs(true, null).catch((err) => {
+        console.error("[useHPAs] Error during rescan:", err);
+      });
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("rescanHPAs", handleRescan as EventListener);
+    }
+
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("rescanHPAs", handleRescan as EventListener);
+      }
+    };
   }, [cluster, namespace]);
 
   return { hpas, loading, error, refetch: fetchHPAs, updateHPA };
@@ -242,7 +307,7 @@ export function useCronJobsOld(cluster?: string, namespace?: string) {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiClient.getCronJobs(cluster, namespace);
+      const data = await apiClient.getCronJobs(cluster);
       setCronJobs(data);
     } catch (err) {
       setError(
@@ -288,7 +353,7 @@ export function usePrometheusOld(cluster?: string, namespace?: string) {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiClient.getPrometheusResources(cluster, namespace);
+      const data = await apiClient.getPrometheusResources(cluster);
       setResources(data);
     } catch (err) {
       setError(

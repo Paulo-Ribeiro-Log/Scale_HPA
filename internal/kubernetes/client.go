@@ -253,7 +253,39 @@ func (c *Client) UpdateHPA(ctx context.Context, hpa models.HPA) error {
 		}
 	}
 
+	// Executar rollout de Deployment se solicitado
+	if err := c.TriggerRollout(ctx, hpa); err != nil {
+		// Log warning but don't fail the update
+		fmt.Printf("⚠️  Warning: failed to trigger deployment rollout for %s/%s: %v\n", hpa.Namespace, hpa.Name, err)
+	}
+
+	// Executar rollout de DaemonSet se solicitado
+	if err := c.TriggerDaemonSetRollout(ctx, hpa); err != nil {
+		fmt.Printf("⚠️  Warning: failed to trigger daemonset rollout for %s/%s: %v\n", hpa.Namespace, hpa.Name, err)
+	}
+
+	// Executar rollout de StatefulSet se solicitado
+	if err := c.TriggerStatefulSetRollout(ctx, hpa); err != nil {
+		fmt.Printf("⚠️  Warning: failed to trigger statefulset rollout for %s/%s: %v\n", hpa.Namespace, hpa.Name, err)
+	}
+
 	return nil
+}
+
+// GetHPA retorna um HPA específico com dados enriquecidos
+func (c *Client) GetHPA(ctx context.Context, namespace, name string) (models.HPA, error) {
+	hpa, err := c.clientset.AutoscalingV2().HorizontalPodAutoscalers(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return models.HPA{}, fmt.Errorf("failed to get HPA %s/%s in cluster %s: %w", namespace, name, c.cluster, err)
+	}
+
+	model := c.convertHPAToModel(hpa)
+
+	if err := c.EnrichHPAWithDeploymentResources(ctx, &model); err != nil {
+		fmt.Printf("Warning: failed to load deployment resources for HPA %s/%s: %v\n", model.Namespace, model.Name, err)
+	}
+
+	return model, nil
 }
 
 // TriggerRollout executa rollout de um deployment (se PerformRollout for true)
@@ -293,6 +325,93 @@ func (c *Client) TriggerRollout(ctx context.Context, hpa models.HPA) error {
 		return fmt.Errorf("failed to trigger rollout for deployment %s/%s: %w", hpa.Namespace, deploymentName, err)
 	}
 
+	return nil
+}
+
+// TriggerDaemonSetRollout executa rollout de um DaemonSet
+func (c *Client) TriggerDaemonSetRollout(ctx context.Context, hpa models.HPA) error {
+	if !hpa.PerformDaemonSetRollout {
+		return nil // Não executar rollout se não solicitado
+	}
+
+	// Para DaemonSets, precisamos identificar qual DaemonSet está relacionado
+	// Como HPAs normalmente targetam Deployments, vamos buscar DaemonSets no mesmo namespace
+	// que tenham labels similares ou mesmo nome
+
+	// Obter o target do HPA
+	hpaObj, err := c.clientset.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(ctx, hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get HPA %s/%s: %w", hpa.Namespace, hpa.Name, err)
+	}
+
+	targetName := hpaObj.Spec.ScaleTargetRef.Name
+
+	// Tentar encontrar DaemonSet com nome similar
+	daemonSet, err := c.clientset.AppsV1().DaemonSets(hpa.Namespace).Get(ctx, targetName, metav1.GetOptions{})
+	if err != nil {
+		// Se não encontrou pelo nome exato, pode não existir DaemonSet para este HPA
+		fmt.Printf("ℹ️  No DaemonSet found with name %s in namespace %s, skipping rollout\n", targetName, hpa.Namespace)
+		return nil
+	}
+
+	// Forçar rollout adicionando/atualizando annotation
+	if daemonSet.Spec.Template.Annotations == nil {
+		daemonSet.Spec.Template.Annotations = make(map[string]string)
+	}
+	daemonSet.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = metav1.Now().Format("2006-01-02T15:04:05Z")
+
+	// Aplicar o rollout
+	_, err = c.clientset.AppsV1().DaemonSets(hpa.Namespace).Update(ctx, daemonSet, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to trigger rollout for daemonset %s/%s: %w", hpa.Namespace, targetName, err)
+	}
+
+	fmt.Printf("✅ DaemonSet rollout triggered for %s/%s\n", hpa.Namespace, targetName)
+	return nil
+}
+
+// TriggerStatefulSetRollout executa rollout de um StatefulSet
+func (c *Client) TriggerStatefulSetRollout(ctx context.Context, hpa models.HPA) error {
+	if !hpa.PerformStatefulSetRollout {
+		return nil // Não executar rollout se não solicitado
+	}
+
+	// Obter o target do HPA
+	hpaObj, err := c.clientset.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(ctx, hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get HPA %s/%s: %w", hpa.Namespace, hpa.Name, err)
+	}
+
+	targetName := hpaObj.Spec.ScaleTargetRef.Name
+
+	// Verificar se o target é um StatefulSet ou buscar por nome
+	var statefulSetName string
+	if hpaObj.Spec.ScaleTargetRef.Kind == "StatefulSet" {
+		statefulSetName = targetName
+	} else {
+		// Tentar encontrar StatefulSet com nome similar
+		statefulSetName = targetName
+	}
+
+	statefulSet, err := c.clientset.AppsV1().StatefulSets(hpa.Namespace).Get(ctx, statefulSetName, metav1.GetOptions{})
+	if err != nil {
+		fmt.Printf("ℹ️  No StatefulSet found with name %s in namespace %s, skipping rollout\n", statefulSetName, hpa.Namespace)
+		return nil
+	}
+
+	// Forçar rollout adicionando/atualizando annotation
+	if statefulSet.Spec.Template.Annotations == nil {
+		statefulSet.Spec.Template.Annotations = make(map[string]string)
+	}
+	statefulSet.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = metav1.Now().Format("2006-01-02T15:04:05Z")
+
+	// Aplicar o rollout
+	_, err = c.clientset.AppsV1().StatefulSets(hpa.Namespace).Update(ctx, statefulSet, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to trigger rollout for statefulset %s/%s: %w", hpa.Namespace, statefulSetName, err)
+	}
+
+	fmt.Printf("✅ StatefulSet rollout triggered for %s/%s\n", hpa.Namespace, statefulSetName)
 	return nil
 }
 

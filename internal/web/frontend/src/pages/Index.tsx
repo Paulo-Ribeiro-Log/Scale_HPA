@@ -96,6 +96,11 @@ const Index = ({ onLogout }: IndexProps) => {
     }
   };
 
+  // Reset namespace when cluster changes
+  useEffect(() => {
+    setSelectedNamespace("");
+  }, [selectedCluster]);
+
   // Auto-select first namespace for CronJobs and Prometheus
   useEffect(() => {
     if (namespaces.length > 0 && !selectedNamespace) {
@@ -178,10 +183,6 @@ const Index = ({ onLogout }: IndexProps) => {
                 <HPAEditor
                   hpa={selectedHPA}
                   onApply={handleApplySingle}
-                  onApplied={() => {
-                    // Refresh apenas os HPAs sem recarregar a página
-                    refetchHPAs();
-                  }}
                 />
               ),
             }}
@@ -336,8 +337,12 @@ const Index = ({ onLogout }: IndexProps) => {
         onOpenChange={setShowApplyModal}
         modifiedHPAs={hpasToApply}
         onApplied={() => {
-          // Refresh apenas os HPAs sem recarregar a página
-          refetchHPAs();
+          // Disparar evento global de rescan para recarregar HPAs do cluster correto
+          if (typeof window !== "undefined" && selectedCluster) {
+            window.dispatchEvent(new CustomEvent("rescanHPAs", {
+              detail: { cluster: selectedCluster }
+            }));
+          }
         }}
         onClear={() => {
           // Limpar staging area

@@ -97,26 +97,53 @@ class APIClient {
   }
 
   // HPAs
-  async getHPAs(cluster?: string, namespace?: string): Promise<HPA[]> {
+  async getHPAs(cluster?: string, namespace?: string, bypassCache: boolean = false): Promise<HPA[]> {
     const params = new URLSearchParams();
     if (cluster) params.append("cluster", cluster);
     if (namespace) params.append("namespace", namespace);
+    if (bypassCache) params.append("_t", Date.now().toString());
     const query = params.toString() ? `?${params.toString()}` : "";
 
-    const response = await this.request<APIResponse<HPA[]>>(`/hpas${query}`);
+    const response = await this.request<APIResponse<HPA[]>>(`/hpas${query}`, {
+      headers: bypassCache
+        ? {
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          }
+        : {},
+    });
     return response.data || [];
   }
 
   async getHPA(
     cluster: string,
     namespace: string,
-    name: string
+    name: string,
+    bypassCache: boolean = false
   ): Promise<HPA> {
-    return this.request(
+    const params = new URLSearchParams();
+    if (bypassCache) params.append("_t", Date.now().toString());
+    const query = params.toString()
+      ? `?${params.toString()}`
+      : "";
+
+    const response = await this.request<APIResponse<HPA>>(
       `/hpas/${encodeURIComponent(cluster)}/${encodeURIComponent(
         namespace
-      )}/${encodeURIComponent(name)}`
+      )}/${encodeURIComponent(name)}${query}`,
+      {
+        headers: bypassCache
+          ? {
+              "Cache-Control": "no-cache",
+              Pragma: "no-cache",
+            }
+          : {},
+      }
     );
+    if (!response.data) {
+      throw new Error("HPA not found");
+    }
+    return response.data;
   }
 
   async updateHPA(
@@ -125,15 +152,24 @@ class APIClient {
     name: string,
     hpa: Partial<HPA>
   ): Promise<HPA> {
-    return this.request(
+    const response = await this.request<APIResponse<HPA>>(
       `/hpas/${encodeURIComponent(cluster)}/${encodeURIComponent(
         namespace
       )}/${encodeURIComponent(name)}`,
       {
         method: "PUT",
         body: JSON.stringify(hpa),
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
       }
     );
+    if (!response.data) {
+      throw new Error("HPA update did not return data");
+    }
+    return response.data;
   }
 
   // Node Pools
