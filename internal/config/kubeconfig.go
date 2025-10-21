@@ -757,3 +757,31 @@ func (k *KubeConfigManager) getRealNodeMetrics(client kubernetes.Interface, ctx 
 		MemoryUsagePercent: memoryPercent,
 	}, true
 }
+
+// GetClusterConfigFromFile retorna a configuração de um cluster do arquivo clusters-config.json
+func (k *KubeConfigManager) GetClusterConfigFromFile(clusterName string) (map[string]interface{}, error) {
+	configs := k.loadClustersFromConfig()
+
+	for _, cfg := range configs {
+		if cfg.Name == clusterName {
+			return map[string]interface{}{
+				"clusterName":   cfg.Name,
+				"resourceGroup": cfg.ResourceGroup,
+				"subscription":  cfg.Subscription,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("cluster configuration not found for: %s", clusterName)
+}
+
+// SwitchAzureSubscription muda para uma subscription específica do Azure
+func (k *KubeConfigManager) SwitchAzureSubscription(subscription string) error {
+	cmd := exec.Command("az", "account", "set", "--subscription", subscription)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to switch Azure subscription to %s: %w, output: %s",
+			subscription, err, string(output))
+	}
+	return nil
+}

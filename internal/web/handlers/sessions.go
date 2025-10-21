@@ -423,6 +423,85 @@ func (h *SessionsHandler) DeleteSession(c *gin.Context) {
 	})
 }
 
+// RenameSession renames a session
+func (h *SessionsHandler) RenameSession(c *gin.Context) {
+	if h.sessionManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "SESSION_MANAGER_ERROR",
+				"message": "Session manager not initialized",
+			},
+		})
+		return
+	}
+
+	oldName := c.Param("name")
+	folder := c.Query("folder")
+
+	var request struct {
+		NewName string `json:"new_name" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_REQUEST",
+				"message": fmt.Sprintf("Invalid request body: %v", err),
+			},
+		})
+		return
+	}
+
+	var err error
+
+	if folder != "" {
+		// Renomear em pasta específica
+		sessionFolder, parseErr := h.parseSessionFolder(folder)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "INVALID_FOLDER",
+					"message": fmt.Sprintf("Invalid folder name: %s", folder),
+				},
+			})
+			return
+		}
+		err = h.sessionManager.RenameSessionInFolder(oldName, request.NewName, sessionFolder)
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "FOLDER_REQUIRED",
+				"message": "Folder parameter is required for rename operation",
+			},
+		})
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "RENAME_ERROR",
+				"message": fmt.Sprintf("Failed to rename session: %v", err),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"message":  "Session renamed successfully",
+			"old_name": oldName,
+			"new_name": request.NewName,
+		},
+	})
+}
+
 // GetSessionTemplates returns available session templates
 func (h *SessionsHandler) GetSessionTemplates(c *gin.Context) {
 	if h.sessionManager == nil {

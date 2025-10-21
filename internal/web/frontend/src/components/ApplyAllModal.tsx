@@ -10,10 +10,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle, XCircle, ArrowRight, Loader2, AlertCircle } from "lucide-react";
+import { CheckCircle, XCircle, ArrowRight, Loader2, AlertCircle, Trash2 } from "lucide-react";
 import type { HPA } from "@/lib/api/types";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api/client";
+import { useStaging } from "@/contexts/StagingContext";
 
 interface ApplyAllModalProps {
   open: boolean;
@@ -37,6 +38,7 @@ export const ApplyAllModal = ({
   onApplied,
   onClear,
 }: ApplyAllModalProps) => {
+  const staging = useStaging();
   const [isApplying, setIsApplying] = useState(false);
   const [applyingIndividual, setApplyingIndividual] = useState<string | null>(null);
   const [hpaStates, setHpaStates] = useState<Record<string, HPAApplyState>>({});
@@ -46,11 +48,22 @@ export const ApplyAllModal = ({
     setHpaStates(prev => ({ ...prev, [key]: { status: 'applying' } }));
     
     try {
+      // Adicionar sufixo -admin ao nome do cluster para a API
+      const clusterWithAdmin = current.cluster.endsWith('-admin') 
+        ? current.cluster 
+        : `${current.cluster}-admin`;
+      
+      // Update the HPA object's cluster property to match
+      const hpaWithCorrectCluster = {
+        ...current,
+        cluster: clusterWithAdmin
+      };
+      
       await apiClient.updateHPA(
-        current.cluster,
+        clusterWithAdmin,
         current.namespace,
         current.name,
-        current
+        hpaWithCorrectCluster
       );
 
       setHpaStates(prev => ({ ...prev, [key]: { status: 'success', message: 'Aplicado com sucesso' } }));
@@ -72,11 +85,22 @@ export const ApplyAllModal = ({
       setHpaStates(prev => ({ ...prev, [key]: { status: 'applying' } }));
       
       try {
+        // Adicionar sufixo -admin ao nome do cluster para a API
+        const clusterWithAdmin = current.cluster.endsWith('-admin') 
+          ? current.cluster 
+          : `${current.cluster}-admin`;
+        
+        // Update the HPA object's cluster property to match
+        const hpaWithCorrectCluster = {
+          ...current,
+          cluster: clusterWithAdmin
+        };
+        
         await apiClient.updateHPA(
-          current.cluster,
+          clusterWithAdmin,
           current.namespace,
           current.name,
-          current
+          hpaWithCorrectCluster
         );
         
         setHpaStates(prev => ({ ...prev, [key]: { status: 'success', message: 'Aplicado com sucesso' } }));
@@ -122,22 +146,26 @@ export const ApplyAllModal = ({
   };
 
   const renderChange = (label: string, before: any, after: any) => {
-    const normalizedBefore = before ?? null;
-    const normalizedAfter = after ?? null;
+    // Normalizar valores undefined, null e string vazia para null
+    const normalizedBefore = (before === undefined || before === null || before === "") ? null : before;
+    const normalizedAfter = (after === undefined || after === null || after === "") ? null : after;
 
-    if (normalizedBefore === normalizedAfter) return null;
+    // Se ambos são null/undefined/vazio, não mostrar
+    if (normalizedBefore === null && normalizedAfter === null) {
+      return null;
+    }
 
-    if ((normalizedBefore === null || normalizedBefore === "") &&
-        (normalizedAfter === null || normalizedAfter === "")) {
+    // Se os valores são iguais, não mostrar
+    if (normalizedBefore === normalizedAfter) {
       return null;
     }
 
     return (
       <div className="flex items-center gap-2 text-sm py-1">
         <span className="text-muted-foreground min-w-[140px]">{label}:</span>
-        <span className="text-red-500 line-through">{before ?? "—"}</span>
+        <span className="text-red-500 line-through">{normalizedBefore ?? "—"}</span>
         <ArrowRight className="w-4 h-4 text-muted-foreground" />
-        <span className="text-green-500 font-medium">{after ?? "—"}</span>
+        <span className="text-green-500 font-medium">{normalizedAfter ?? "—"}</span>
       </div>
     );
   };
@@ -145,14 +173,33 @@ export const ApplyAllModal = ({
   const renderHPAChanges = (current: HPA, original: HPA) => {
     const changes = [];
 
-    changes.push(renderChange("Min Replicas", original.min_replicas, current.min_replicas));
-    changes.push(renderChange("Max Replicas", original.max_replicas, current.max_replicas));
-    changes.push(renderChange("Target CPU (%)", original.target_cpu, current.target_cpu));
-    changes.push(renderChange("Target Memory (%)", original.target_memory, current.target_memory));
-    changes.push(renderChange("CPU Request", original.target_cpu_request, current.target_cpu_request));
-    changes.push(renderChange("CPU Limit", original.target_cpu_limit, current.target_cpu_limit));
-    changes.push(renderChange("Memory Request", original.target_memory_request, current.target_memory_request));
-    changes.push(renderChange("Memory Limit", original.target_memory_limit, current.target_memory_limit));
+    // Sempre mostrar min/max replicas e targets que existem
+    if (current.min_replicas !== undefined || original.min_replicas !== undefined) {
+      changes.push(renderChange("Min Replicas", original.min_replicas, current.min_replicas));
+    }
+    if (current.max_replicas !== undefined || original.max_replicas !== undefined) {
+      changes.push(renderChange("Max Replicas", original.max_replicas, current.max_replicas));
+    }
+    if (current.target_cpu !== undefined || original.target_cpu !== undefined) {
+      changes.push(renderChange("Target CPU (%)", original.target_cpu, current.target_cpu));
+    }
+    if (current.target_memory !== undefined || original.target_memory !== undefined) {
+      changes.push(renderChange("Target Memory (%)", original.target_memory, current.target_memory));
+    }
+    
+    // Só mostrar recursos se pelo menos um dos valores existir
+    if (current.target_cpu_request || original.target_cpu_request) {
+      changes.push(renderChange("CPU Request", original.target_cpu_request, current.target_cpu_request));
+    }
+    if (current.target_cpu_limit || original.target_cpu_limit) {
+      changes.push(renderChange("CPU Limit", original.target_cpu_limit, current.target_cpu_limit));
+    }
+    if (current.target_memory_request || original.target_memory_request) {
+      changes.push(renderChange("Memory Request", original.target_memory_request, current.target_memory_request));
+    }
+    if (current.target_memory_limit || original.target_memory_limit) {
+      changes.push(renderChange("Memory Limit", original.target_memory_limit, current.target_memory_limit));
+    }
 
     // Rollout options
     if (current.perform_rollout && !original.perform_rollout) {
@@ -191,14 +238,26 @@ export const ApplyAllModal = ({
           <DialogDescription>
             {modifiedHPAs.length} HPA{modifiedHPAs.length > 1 ? "s" : ""} será{modifiedHPAs.length > 1 ? "ão" : ""} modificado{modifiedHPAs.length > 1 ? "s" : ""} no cluster
           </DialogDescription>
+          {staging?.loadedSessionInfo && (
+            <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="font-semibold text-blue-700 dark:text-blue-300">📂 Sessão Carregada:</span>
+                <span className="text-blue-900 dark:text-blue-100">{staging.loadedSessionInfo.sessionName}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm mt-1">
+                <span className="font-semibold text-blue-700 dark:text-blue-300">🎯 Cluster{staging.loadedSessionInfo.clusters.length > 1 ? 's' : ''}:</span>
+                <span className="text-blue-900 dark:text-blue-100">{staging.loadedSessionInfo.clusters.join(', ')}</span>
+              </div>
+            </div>
+          )}
         </DialogHeader>
 
         <ScrollArea className="max-h-[50vh] pr-4">
           <div className="space-y-4">
             {modifiedHPAs.map(({ key, current, original }) => {
               const changes = renderHPAChanges(current, original);
-              if (changes.length === 0) return null;
-
+              
+              // Se não há mudanças visíveis, mostrar uma mensagem mínima mas não esconder o HPA
               const hpaState = hpaStates[key];
               const hasBeenApplied = hpaState && (hpaState.status === 'success' || hpaState.status === 'error' || hpaState.status === 'warning');
               
@@ -244,7 +303,15 @@ export const ApplyAllModal = ({
                     </Button>
                   </div>
                   <Separator />
-                  <div className="space-y-1">{changes}</div>
+                  <div className="space-y-1">
+                    {changes.length > 0 ? (
+                      changes
+                    ) : (
+                      <div className="text-sm text-muted-foreground italic">
+                        Nenhuma mudança visível (valores idênticos)
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -252,23 +319,39 @@ export const ApplyAllModal = ({
         </ScrollArea>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={isApplying || applyingIndividual !== null}>
-            {isApplying || applyingIndividual !== null ? "Aguarde..." : "Fechar"}
-          </Button>
-          <Button
-            onClick={handleApplyAll}
-            disabled={isApplying || applyingIndividual !== null}
-            className="bg-success hover:bg-success/90"
-          >
-            {isApplying ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Aplicando todos...
-              </>
-            ) : (
-              `✅ Aplicar Todos (${modifiedHPAs.length})`
-            )}
-          </Button>
+          <div className="flex justify-between w-full">
+            <Button 
+              variant="destructive" 
+              onClick={() => {
+                staging?.clearStaging();
+                toast.info("Staging limpo com sucesso");
+                handleClose();
+              }} 
+              disabled={isApplying || applyingIndividual !== null}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Cancelar e Limpar
+            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleClose} disabled={isApplying || applyingIndividual !== null}>
+                {isApplying || applyingIndividual !== null ? "Aguarde..." : "Fechar"}
+              </Button>
+              <Button
+                onClick={handleApplyAll}
+                disabled={isApplying || applyingIndividual !== null}
+                className="bg-success hover:bg-success/90"
+              >
+                {isApplying ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Aplicando todos...
+                  </>
+                ) : (
+                  `✅ Aplicar Todos (${modifiedHPAs.length})`
+                )}
+              </Button>
+            </div>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

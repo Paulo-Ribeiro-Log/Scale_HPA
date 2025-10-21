@@ -379,9 +379,13 @@ const Index = ({ onLogout }: IndexProps) => {
       <LoadSessionModal
         open={showLoadSessionModal}
         onOpenChange={setShowLoadSessionModal}
-        onSessionLoaded={() => {
-          // Opcional: mostrar toast de sessão carregada
+        onSessionLoaded={(clusterName) => {
           console.log("Sessão carregada com sucesso!");
+          // Resetar namespace ANTES de trocar o cluster para evitar busca em namespace inexistente
+          if (clusterName) {
+            setSelectedNamespace(""); // Reset namespace PRIMEIRO
+            setSelectedCluster(`${clusterName}-admin`); // Depois troca o cluster
+          }
         }}
       />
     </div>

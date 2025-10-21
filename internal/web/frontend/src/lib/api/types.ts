@@ -169,6 +169,7 @@ export interface Session {
   created_by: string;
   description?: string;
   template_used: string;
+  folder?: string;
   metadata?: SessionMetadata;
   changes: HPAChange[];
   node_pool_changes: NodePoolChange[];

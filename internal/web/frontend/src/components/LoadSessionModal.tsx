@@ -12,17 +12,52 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, FolderOpen, Calendar, User, Info, FileText } from 'lucide-react';
+import { Loader2, FolderOpen, Calendar, User, Info, FileText, Folder, Edit2, Trash2, MoreVertical } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useSessionTemplates } from '@/hooks/useSessions';
 import { useStaging } from '@/contexts/StagingContext';
 import type { Session } from '@/lib/api/types';
 import { apiClient } from '@/lib/api/client';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 
 interface LoadSessionModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSessionLoaded?: () => void;
+  onSessionLoaded?: (clusterName: string) => void;
 }
+
+// Pastas disponíveis (mesmas do Save Session)
+const SESSION_FOLDERS = [
+  { value: 'all', label: 'Todas as Pastas', icon: '📁', description: 'Exibir todas as sessões' },
+  { value: 'HPA-Upscale', label: 'HPA-Upscale', icon: '📈', description: 'HPA scale up sessions' },
+  { value: 'HPA-Downscale', label: 'HPA-Downscale', icon: '📉', description: 'HPA scale down sessions' },
+  { value: 'Node-Upscale', label: 'Node-Upscale', icon: '🚀', description: 'Node pool scale up sessions' },
+  { value: 'Node-Downscale', label: 'Node-Downscale', icon: '⬇️', description: 'Node pool scale down sessions' },
+];
 
 // Mock para agora - posteriormente integrar com API real
 const mockSessions: Session[] = [
@@ -77,23 +112,73 @@ export function LoadSessionModal({ open, onOpenChange, onSessionLoaded }: LoadSe
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [selectedSessionDetails, setSelectedSessionDetails] = useState<Session | null>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
+  const [selectedFolder, setSelectedFolder] = useState<string>('all');
+  
+  // Estados para gerenciamento de sessões
+  const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
+  const [sessionToRename, setSessionToRename] = useState<Session | null>(null);
+  const [newSessionName, setNewSessionName] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
 
   const staging = useStaging();
 
-  // Carregar sessões quando modal abrir
+  // Carregar sessões quando modal abrir ou pasta mudar
   useEffect(() => {
     if (open) {
       loadSessions();
+      setSelectedSession(null);
+      setSelectedSessionDetails(null);
     }
-  }, [open]);
+  }, [open, selectedFolder]);
 
-  const loadSessions = async () => {
+  // Carregar detalhes completos da sessão selecionada
+  const loadSessionDetails = async (sessionName: string, folder: string) => {
+    setLoadingDetails(true);
+    setError(null);
+    try {
+      const folderQuery = folder ? `?folder=${encodeURIComponent(folder)}` : '';
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(sessionName)}${folderQuery}`, {
+        headers: {
+          'Authorization': `Bearer poc-token-123`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        setSelectedSessionDetails(data.data);
+      } else {
+        throw new Error(data.error?.message || 'Formato de resposta inválido');
+      }
+    } catch (err) {
+      console.error('Erro ao carregar detalhes da sessão:', err);
+      setError(`Erro ao carregar detalhes: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+      setSelectedSessionDetails(null);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const loadSessions = async (folder?: string) => {
     setLoading(true);
     setError(null);
     try {
-      // Carregar todas as sessões de todas as pastas usando o endpoint real
-      const response = await fetch('/api/v1/sessions', {
+      // Determinar endpoint baseado na pasta selecionada
+      const folderFilter = folder || selectedFolder;
+      const endpoint = folderFilter === 'all' 
+        ? '/api/v1/sessions'
+        : `/api/v1/sessions/folders/${folderFilter}`;
+      
+      const response = await fetch(endpoint, {
         headers: {
           'Authorization': `Bearer poc-token-123`,
           'Content-Type': 'application/json',
@@ -132,23 +217,158 @@ export function LoadSessionModal({ open, onOpenChange, onSessionLoaded }: LoadSe
   };
 
   const handleLoadSession = async () => {
-    if (!selectedSession) return;
+    if (!selectedSessionDetails) return;
 
     setLoadingSession(true);
+    setError(null);
+    
     try {
+      // Extrair clusters únicos das mudanças
+      const clusters = new Set<string>();
+      
+      selectedSessionDetails.changes?.forEach(change => {
+        if (change.cluster) clusters.add(change.cluster);
+      });
+      
+      selectedSessionDetails.node_pool_changes?.forEach(change => {
+        if (change.cluster) clusters.add(change.cluster);
+      });
+
+      // Se houver clusters, tentar trocar contexto para o primeiro
+      if (clusters.size > 0) {
+        const clusterName = Array.from(clusters)[0];
+        // Adicionar sufixo -admin ao nome do cluster para o contexto do Kubernetes
+        const contextName = `${clusterName}-admin`;
+        
+        try {
+          // Buscar configuração do cluster
+          const clusterConfigResponse = await fetch(`/api/v1/clusters/${encodeURIComponent(clusterName)}/config`, {
+            headers: {
+              'Authorization': `Bearer poc-token-123`,
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          if (clusterConfigResponse.ok) {
+            const clusterConfig = await clusterConfigResponse.json();
+            
+            // Trocar subscription do Azure se necessário
+            if (clusterConfig.subscription) {
+              await fetch(`/api/v1/azure/subscription`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer poc-token-123`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ subscription: clusterConfig.subscription }),
+              });
+            }
+            
+            // Trocar contexto do Kubernetes usando o nome com -admin
+            await fetch(`/api/v1/clusters/switch-context`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer poc-token-123`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ context: contextName }),
+            });
+          }
+        } catch (contextErr) {
+          console.warn('Não foi possível trocar contexto automaticamente:', contextErr);
+          // Continuar mesmo se falhar a troca de contexto
+        }
+      }
+      
       // Carregar sessão no staging context
-      staging.loadFromSession(selectedSession);
+      staging.loadFromSession(selectedSessionDetails);
       
       // Fechar modal
       onOpenChange(false);
-      onSessionLoaded?.();
+      
+      // Notificar que a sessão foi carregada, passando o cluster
+      if (clusters.size > 0) {
+        const clusterName = Array.from(clusters)[0];
+        onSessionLoaded?.(clusterName);
+      } else {
+        onSessionLoaded?.('');
+      }
       
       // Limpar seleção
       setSelectedSession(null);
+      setSelectedSessionDetails(null);
     } catch (err) {
-      setError('Erro ao carregar sessão');
+      console.error('Erro ao carregar sessão:', err);
+      setError(`Erro ao carregar sessão: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
     } finally {
       setLoadingSession(false);
+    }
+  };
+
+  const handleDeleteSession = async () => {
+    if (!sessionToDelete) return;
+    
+    setIsDeleting(true);
+    try {
+      const folderQuery = sessionToDelete.folder ? `?folder=${encodeURIComponent(sessionToDelete.folder)}` : '';
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(sessionToDelete.name)}${folderQuery}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer poc-token-123`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erro ao deletar: ${response.statusText}`);
+      }
+
+      toast.success(`Sessão "${sessionToDelete.name}" removida com sucesso`);
+      setSessionToDelete(null);
+      
+      // Se a sessão deletada estava selecionada, limpar seleção
+      if (selectedSession?.name === sessionToDelete.name) {
+        setSelectedSession(null);
+        setSelectedSessionDetails(null);
+      }
+      
+      // Recarregar lista
+      loadSessions();
+    } catch (err) {
+      toast.error(`Erro ao deletar sessão: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleRenameSession = async () => {
+    if (!sessionToRename || !newSessionName.trim()) return;
+    
+    setIsRenaming(true);
+    try {
+      const folderQuery = sessionToRename.folder ? `?folder=${encodeURIComponent(sessionToRename.folder)}` : '';
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(sessionToRename.name)}/rename${folderQuery}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer poc-token-123`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ new_name: newSessionName.trim() }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erro ao renomear: ${response.statusText}`);
+      }
+
+      toast.success(`Sessão renomeada para "${newSessionName.trim()}"`);
+      setSessionToRename(null);
+      setNewSessionName('');
+      
+      // Recarregar lista
+      loadSessions();
+    } catch (err) {
+      toast.error(`Erro ao renomear sessão: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+    } finally {
+      setIsRenaming(false);
     }
   };
 
@@ -191,6 +411,34 @@ export function LoadSessionModal({ open, onOpenChange, onSessionLoaded }: LoadSe
           </DialogDescription>
         </DialogHeader>
 
+        {/* Seletor de Pasta */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium flex items-center gap-2">
+            <Folder className="h-4 w-4" />
+            Filtrar por Pasta
+          </label>
+          <Select value={selectedFolder} onValueChange={setSelectedFolder}>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecione uma pasta..." />
+            </SelectTrigger>
+            <SelectContent>
+              {SESSION_FOLDERS.map((folder) => (
+                <SelectItem key={folder.value} value={folder.value}>
+                  <div className="flex items-center gap-2">
+                    <span>{folder.icon}</span>
+                    <div>
+                      <div className="font-medium">{folder.label}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {folder.description}
+                      </div>
+                    </div>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[400px]">
           {/* Lista de Sessões */}
           <div className="space-y-4">
@@ -211,19 +459,60 @@ export function LoadSessionModal({ open, onOpenChange, onSessionLoaded }: LoadSe
                   {sessions.map((session) => (
                     <Card
                       key={session.name}
-                      className={`cursor-pointer transition-colors ${
+                      className={`transition-colors ${
                         selectedSession?.name === session.name
                           ? 'border-primary bg-accent'
                           : 'hover:bg-accent/50'
                       }`}
-                      onClick={() => setSelectedSession(session)}
                     >
                       <CardHeader className="pb-2">
-                        <div className="flex items-start justify-between">
-                          <CardTitle className="text-sm">{session.name}</CardTitle>
-                          <Badge className={getSessionTypeColor(session)}>
-                            {getSessionType(session)}
-                          </Badge>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 cursor-pointer" onClick={() => {
+                            setSelectedSession(session);
+                            loadSessionDetails(session.name, session.folder || '');
+                          }}>
+                            <CardTitle className="text-sm">{session.name}</CardTitle>
+                            {session.folder && (
+                              <div className="text-xs text-muted-foreground mt-0.5">
+                                📁 {session.folder}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Badge className={getSessionTypeColor(session)}>
+                              {getSessionType(session)}
+                            </Badge>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 cursor-pointer hover:bg-accent">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSessionToRename(session);
+                                    setNewSessionName(session.name);
+                                  }}
+                                >
+                                  <Edit2 className="h-4 w-4 mr-2" />
+                                  Renomear
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSessionToDelete(session);
+                                  }}
+                                  className="text-destructive focus:text-destructive"
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Deletar
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </div>
                       </CardHeader>
                       <CardContent className="pt-0">
@@ -274,33 +563,75 @@ export function LoadSessionModal({ open, onOpenChange, onSessionLoaded }: LoadSe
                   <p>Selecione uma sessão para ver o preview</p>
                 </div>
               </div>
-            ) : (
+            ) : loadingDetails ? (
+              <div className="flex items-center justify-center h-[350px] border rounded-lg">
+                <div className="text-center">
+                  <Loader2 className="h-6 w-6 mx-auto mb-2 animate-spin" />
+                  <p className="text-sm text-muted-foreground">Carregando detalhes...</p>
+                </div>
+              </div>
+            ) : selectedSessionDetails ? (
               <ScrollArea className="h-[350px] border rounded-lg p-4">
                 <div className="space-y-4">
+                  {/* Informação de Origem da Sessão */}
+                  <div className="p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <div className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">
+                      📂 Sessão Carregada:
+                    </div>
+                    <div className="text-base font-bold text-blue-700 dark:text-blue-300">
+                      {selectedSessionDetails.name}
+                    </div>
+                    {(() => {
+                      const clusters = new Set<string>();
+                      selectedSessionDetails.changes?.forEach(change => {
+                        if (change.cluster) clusters.add(change.cluster);
+                      });
+                      selectedSessionDetails.node_pool_changes?.forEach(change => {
+                        if (change.cluster) clusters.add(change.cluster);
+                      });
+                      return clusters.size > 0 && (
+                        <div className="text-sm font-semibold text-blue-600 dark:text-blue-400 mt-1">
+                          🎯 Cluster: <span className="font-bold">{Array.from(clusters).join(', ')}</span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                   {/* Informações da Sessão */}
                   <div className="space-y-2">
-                    <h4 className="font-medium">{selectedSession.name}</h4>
-                    <p className="text-sm text-muted-foreground">{selectedSession.description}</p>
+                    <h4 className="font-medium">{selectedSessionDetails.name}</h4>
+                    <p className="text-sm text-muted-foreground">{selectedSessionDetails.description}</p>
                     <div className="text-xs text-muted-foreground">
-                      <p>Criado por: {selectedSession.created_by}</p>
-                      <p>Data: {new Date(selectedSession.created_at).toLocaleString('pt-BR')}</p>
-                      <p>Template: {selectedSession.template_used}</p>
+                      <p>Criado por: {selectedSessionDetails.created_by}</p>
+                      <p>Data: {new Date(selectedSessionDetails.created_at).toLocaleString('pt-BR')}</p>
+                      <p>Template: {selectedSessionDetails.template_used}</p>
                     </div>
                   </div>
 
                   {/* HPAs */}
-                  {selectedSession.changes.length > 0 && (
+                  {selectedSessionDetails.changes && selectedSessionDetails.changes.length > 0 && (
                     <div className="space-y-2">
-                      <h5 className="text-sm font-medium">HPAs ({selectedSession.changes.length})</h5>
-                      {selectedSession.changes.map((change, index) => (
-                        <div key={index} className="p-2 bg-muted rounded text-xs">
-                          <div className="font-medium">{change.namespace}/{change.hpa_name}</div>
-                          <div className="text-muted-foreground">
-                            Min: {change.original_values?.min_replicas} → {change.new_values?.min_replicas}
-                            {", "}
-                            Max: {change.original_values?.max_replicas} → {change.new_values?.max_replicas}
+                      <h5 className="text-sm font-medium">📊 HPAs ({selectedSessionDetails.changes.length})</h5>
+                      {selectedSessionDetails.changes.map((change, index) => (
+                        <div key={index} className="p-3 bg-muted rounded-md text-xs space-y-1">
+                          <div className="font-medium text-sm">{change.namespace}/{change.hpa_name}</div>
+                          <div className="text-muted-foreground space-y-0.5">
+                            <div>🔹 Min Replicas: <span className="text-red-500">{change.original_values?.min_replicas}</span> → <span className="text-green-500">{change.new_values?.min_replicas}</span></div>
+                            <div>🔹 Max Replicas: <span className="text-red-500">{change.original_values?.max_replicas}</span> → <span className="text-green-500">{change.new_values?.max_replicas}</span></div>
                             {change.new_values?.target_cpu && (
-                              <>, CPU: {change.original_values?.target_cpu}% → {change.new_values?.target_cpu}%</>
+                              <div>🔹 Target CPU: <span className="text-red-500">{change.original_values?.target_cpu}%</span> → <span className="text-green-500">{change.new_values?.target_cpu}%</span></div>
+                            )}
+                            {change.new_values?.target_memory && (
+                              <div>🔹 Target Memory: <span className="text-red-500">{change.original_values?.target_memory}%</span> → <span className="text-green-500">{change.new_values?.target_memory}%</span></div>
+                            )}
+                            {(change.new_values?.perform_rollout || change.new_values?.perform_daemonset_rollout || change.new_values?.perform_statefulset_rollout) && (
+                              <div className="text-orange-600 font-medium mt-1">
+                                🔄 Rollout: {[
+                                  change.new_values?.perform_rollout && 'Deployment',
+                                  change.new_values?.perform_daemonset_rollout && 'DaemonSet',
+                                  change.new_values?.perform_statefulset_rollout && 'StatefulSet'
+                                ].filter(Boolean).join(', ')}
+                              </div>
                             )}
                           </div>
                         </div>
@@ -309,18 +640,17 @@ export function LoadSessionModal({ open, onOpenChange, onSessionLoaded }: LoadSe
                   )}
 
                   {/* Node Pools */}
-                  {selectedSession.node_pool_changes.length > 0 && (
+                  {selectedSessionDetails.node_pool_changes && selectedSessionDetails.node_pool_changes.length > 0 && (
                     <div className="space-y-2">
-                      <h5 className="text-sm font-medium">Node Pools ({selectedSession.node_pool_changes.length})</h5>
-                      {selectedSession.node_pool_changes.map((change, index) => (
-                        <div key={index} className="p-2 bg-muted rounded text-xs">
-                          <div className="font-medium">{change.node_pool_name}</div>
-                          <div className="text-muted-foreground">
-                            Count: {change.original_values.node_count} → {change.new_values.node_count}
-                            {", "}
-                            Autoscaling: {change.original_values.autoscaling_enabled ? 'ON' : 'OFF'} → {change.new_values.autoscaling_enabled ? 'ON' : 'OFF'}
+                      <h5 className="text-sm font-medium">🛠️ Node Pools ({selectedSessionDetails.node_pool_changes.length})</h5>
+                      {selectedSessionDetails.node_pool_changes.map((change, index) => (
+                        <div key={index} className="p-3 bg-muted rounded-md text-xs space-y-1">
+                          <div className="font-medium text-sm">{change.node_pool_name}</div>
+                          <div className="text-muted-foreground space-y-0.5">
+                            <div>🔹 Node Count: <span className="text-red-500">{change.original_values.node_count}</span> → <span className="text-green-500">{change.new_values.node_count}</span></div>
+                            <div>🔹 Autoscaling: <span className="text-red-500">{change.original_values.autoscaling_enabled ? 'ON' : 'OFF'}</span> → <span className="text-green-500">{change.new_values.autoscaling_enabled ? 'ON' : 'OFF'}</span></div>
                             {change.sequence_order > 0 && (
-                              <>, Sequence: *{change.sequence_order}</>
+                              <div className="text-blue-600 font-medium">🔢 Sequence Order: {change.sequence_order}</div>
                             )}
                           </div>
                         </div>
@@ -329,6 +659,13 @@ export function LoadSessionModal({ open, onOpenChange, onSessionLoaded }: LoadSe
                   )}
                 </div>
               </ScrollArea>
+            ) : (
+              <div className="flex items-center justify-center h-[350px] text-muted-foreground border rounded-lg">
+                <div className="text-center">
+                  <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>Erro ao carregar detalhes da sessão</p>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -345,13 +682,69 @@ export function LoadSessionModal({ open, onOpenChange, onSessionLoaded }: LoadSe
           </Button>
           <Button 
             onClick={handleLoadSession} 
-            disabled={!selectedSession || loadingSession}
+            disabled={!selectedSessionDetails || loadingSession || loadingDetails}
           >
             {loadingSession && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Carregar Sessão
           </Button>
         </DialogFooter>
       </DialogContent>
+      
+      {/* Dialog de Confirmação de Deleção */}
+      <AlertDialog open={!!sessionToDelete} onOpenChange={(open) => !open && setSessionToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja deletar a sessão <strong>"{sessionToDelete?.name}"</strong>?
+              Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteSession}
+              disabled={isDeleting}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Deletar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      {/* Dialog de Renomear */}
+      <Dialog open={!!sessionToRename} onOpenChange={(open) => !open && setSessionToRename(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Renomear Sessão</DialogTitle>
+            <DialogDescription>
+              Digite o novo nome para a sessão "{sessionToRename?.name}"
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input
+              value={newSessionName}
+              onChange={(e) => setNewSessionName(e.target.value)}
+              placeholder="Nome da sessão"
+              disabled={isRenaming}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSessionToRename(null)} disabled={isRenaming}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleRenameSession}
+              disabled={!newSessionName.trim() || isRenaming || newSessionName === sessionToRename?.name}
+            >
+              {isRenaming && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Renomear
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

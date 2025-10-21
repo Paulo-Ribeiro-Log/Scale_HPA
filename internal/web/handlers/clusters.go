@@ -152,3 +152,69 @@ func (h *ClusterHandler) GetClusterInfo(c *gin.Context) {
 		},
 	})
 }
+
+// GetClusterConfig retorna configuração do cluster do arquivo clusters-config.json
+func (h *ClusterHandler) GetClusterConfig(c *gin.Context) {
+	clusterName := c.Param("name")
+
+	// Buscar configuração no arquivo clusters-config.json
+	clusterConfig, err := h.kubeManager.GetClusterConfigFromFile(clusterName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "Cluster configuration not found: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    clusterConfig,
+	})
+}
+
+// SwitchToClusterContext troca para o contexto de um cluster específico
+func (h *ClusterHandler) SwitchToClusterContext(c *gin.Context) {
+	clusterName := c.Param("name")
+
+	log.Printf("[ClusterHandler] Switching to cluster context: %s", clusterName)
+
+	// Buscar configuração do cluster
+	clusterConfig, err := h.kubeManager.GetClusterConfigFromFile(clusterName)
+	if err != nil {
+		log.Printf("[ClusterHandler] Error getting cluster config: %v", err)
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "Cluster configuration not found: " + err.Error(),
+		})
+		return
+	}
+
+	// Trocar contexto do Kubernetes
+	if err := h.kubeManager.SwitchContext(clusterName); err != nil {
+		log.Printf("[ClusterHandler] Error switching Kubernetes context: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to switch Kubernetes context: " + err.Error(),
+		})
+		return
+	}
+
+	// Trocar subscription do Azure se disponível
+	if clusterConfig["subscription"] != nil && clusterConfig["subscription"] != "" {
+		if err := h.kubeManager.SwitchAzureSubscription(clusterConfig["subscription"].(string)); err != nil {
+			log.Printf("[ClusterHandler] Warning: Could not switch Azure subscription: %v", err)
+			// Não falhar aqui
+		}
+	}
+
+	log.Printf("[ClusterHandler] Successfully switched to cluster: %s", clusterName)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"cluster": clusterName,
+			"message": "Context switched successfully",
+		},
+	})
+}

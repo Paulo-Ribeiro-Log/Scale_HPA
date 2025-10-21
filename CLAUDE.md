@@ -1674,92 +1674,360 @@ const memoryThresholds = { warning: 80, danger: 95 };
 
 # CLAUDE.md - Sessão de Desenvolvimento Web Interface
 
-## Data: 18 de Outubro de 2025
-## Objetivo: Implementar sistema de sessões completo na interface web
+## Data: 21 de Outubro de 2025
+## Objetivo: Sistema de gerenciamento de sessões salvas (rename, edit, delete)
 
 ---
 
-## 🚨 PROBLEMA INICIAL IDENTIFICADO
+## 🚨 ESTADO ATUAL DO DESENVOLVIMENTO WEB
 
-### Sintomas Reportados pelo Usuário:
-1. **Tela branca** ao selecionar node pools no editor
-2. **Alterações não sendo salvas** no staging quando editava HPAs
-3. **Sistema de sessões não funcional** - sem interface visual para Save/Load
-4. **Sessões não sendo salvas** no local correto (`~/.k8s-hpa-manager/sessions/<pasta>`)
-5. **Load não reconhecia** arquivos existentes nas pastas de sessão
+### Features Implementadas com Sucesso:
+1. ✅ **Sistema de Sessões Completo** - Save/Load funcionando com compatibilidade TUI
+2. ✅ **Staging Context** - HPAs e Node Pools com tracking de modificações
+3. ✅ **Modal de Confirmação** - Preview de alterações com "before → after"
+4. ✅ **Session Info Banner** - Exibe nome da sessão e clusters no ApplyAllModal
+5. ✅ **Cluster Name Suffix Fix** - Adição automática de `-admin` ao carregar sessões
+6. ✅ **Build System** - `./rebuild-web.sh -b` para builds corretos
+7. ✅ **"Cancelar e Limpar" Button** - Limpa staging no ApplyAllModal
+8. ✅ **Session Management UI** - Dropdown menu com rename e delete (Outubro 2025)
+
+### Bugs Críticos Resolvidos (Outubro 2025):
+1. ✅ **Cluster Context Mismatch** - Sessions salvavam sem `-admin`, kubeconfig tinha com `-admin`
+2. ✅ **API Calls Wrong Cluster** - `StagingContext.loadFromSession()` agora adiciona `-admin`
+3. ✅ **selectedCluster Not Updating** - `Index.tsx` reseta namespace e atualiza cluster ao carregar
+4. ✅ **Build Cache Issues** - Descoberto que `./rebuild-web.sh -b` é obrigatório
+5. ✅ **Session Folder Property** - Adicionado `folder?: string` ao tipo `Session`
+6. ✅ **Backend Rename Endpoint** - `PUT /api/v1/sessions/:name/rename` implementado
+7. ✅ **TypeScript Errors** - Corrigidos erros de tipo em `LoadSessionModal.tsx`
 
 ---
 
-## 🔧 DIAGNÓSTICO E CORREÇÕES REALIZADAS
+## 📋 FEATURE ATUAL: SESSION MANAGEMENT (Rename & Delete)
 
-### 1. **PROBLEMA: Tela Branca no NodePoolEditor**
+### Problema Reportado:
+Usuário solicitou funcionalidades de gerenciamento de sessões salvas:
+- **Renomear sessões** - Alterar nome de sessões existentes
+- **Editar sessões** - Modificar conteúdo de sessões salvas (futuro)
+- **Deletar sessões** - Remover sessões não mais necessárias
 
-**Causa Raiz:**
+### Status: ⚠️ ISSUE DE VISIBILIDADE DO DROPDOWN
+
+**Última Atualização:**
+- Dropdown menu implementado mas usuário reportou não estar visível
+- Adicionados estilos `cursor-pointer` e `hover:bg-accent` ao botão
+- Aguardando rebuild com `./rebuild-web.sh -b` e verificação do usuário
+
+### Implementação Completa:
+
+**1. Frontend UI Components:**
+
+**LoadSessionModal.tsx** - Dropdown menu em cada sessão:
 ```typescript
-// ❌ ERRO: Métodos inexistentes no StagingContext
-const stagedPool = staging.getNodePool(key);  // Não existe
-staging.addNodePool(modifiedNodePool, nodePool, order);  // Assinatura errada
+// State management
+const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
+const [sessionToRename, setSessionToRename] = useState<Session | null>(null);
+const [newSessionName, setNewSessionName] = useState('');
+
+// Dropdown no CardHeader de cada sessão
+<DropdownMenu>
+  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+    <Button variant="ghost" size="icon" className="h-6 w-6 cursor-pointer hover:bg-accent">
+      <MoreVertical className="h-4 w-4" />
+    </Button>
+  </DropdownMenuTrigger>
+  <DropdownMenuContent align="end">
+    <DropdownMenuItem onClick={(e) => {
+      e.stopPropagation();
+      setSessionToRename(session);
+      setNewSessionName(session.name);
+    }}>
+      <Edit2 className="h-4 w-4 mr-2" />
+      Renomear
+    </DropdownMenuItem>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem onClick={(e) => {
+      e.stopPropagation();
+      setSessionToDelete(session);
+    }} className="text-destructive">
+      <Trash2 className="h-4 w-4 mr-2" />
+      Deletar
+    </DropdownMenuItem>
+  </DropdownMenuContent>
+</DropdownMenu>
+
+// AlertDialog para confirmação de delete
+<AlertDialog open={!!sessionToDelete} onOpenChange={(open) => {
+  if (!open) setSessionToDelete(null);
+}}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Confirmar Remoção</AlertDialogTitle>
+      <AlertDialogDescription>
+        Tem certeza que deseja remover a sessão "{sessionToDelete?.name}"?
+        Esta ação não pode ser desfeita.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+      <AlertDialogAction onClick={handleDeleteSession} disabled={isDeleting}>
+        {isDeleting ? "Removendo..." : "Remover"}
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+
+// Dialog para rename
+<Dialog open={!!sessionToRename} onOpenChange={(open) => {
+  if (!open) {
+    setSessionToRename(null);
+    setNewSessionName('');
+  }
+}}>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Renomear Sessão</DialogTitle>
+      <DialogDescription>
+        Digite um novo nome para a sessão "{sessionToRename?.name}"
+      </DialogDescription>
+    </DialogHeader>
+    <div className="py-4">
+      <Input
+        value={newSessionName}
+        onChange={(e) => setNewSessionName(e.target.value)}
+        placeholder="Nome da sessão"
+      />
+    </div>
+    <DialogFooter>
+      <Button variant="outline" onClick={() => {
+        setSessionToRename(null);
+        setNewSessionName('');
+      }}>
+        Cancelar
+      </Button>
+      <Button onClick={handleRenameSession} disabled={isRenaming || !newSessionName.trim()}>
+        {isRenaming ? "Renomeando..." : "Renomear"}
+      </Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
 ```
 
-**Solução Aplicada:**
+**Handlers:**
 ```typescript
-// ✅ CORRETO: Usar métodos reais do StagingContext
-const stagedPool = staging.stagedNodePools.find(
-  np => np.cluster_name === nodePool.cluster_name && np.name === nodePool.name
-);
+const handleDeleteSession = async () => {
+  if (!sessionToDelete) return;
 
+  setIsDeleting(true);
+  try {
+    const folderQuery = sessionToDelete.folder 
+      ? `?folder=${encodeURIComponent(sessionToDelete.folder)}` 
+      : '';
+    
+    const response = await fetch(
+      `/api/v1/sessions/${encodeURIComponent(sessionToDelete.name)}${folderQuery}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer poc-token-123`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Erro ao deletar sessão');
+    }
+
+    toast.success(`Sessão "${sessionToDelete.name}" removida com sucesso`);
+    
+    // Recarregar lista de sessões
+    loadSessions();
+    setSessionToDelete(null);
+  } catch (error) {
+    console.error('Erro ao deletar sessão:', error);
+    toast.error(error instanceof Error ? error.message : 'Erro ao deletar sessão');
+  } finally {
+    setIsDeleting(false);
+  }
+};
+
+const handleRenameSession = async () => {
+  if (!sessionToRename || !newSessionName.trim()) return;
+
+  setIsRenaming(true);
+  try {
+    const folderQuery = sessionToRename.folder 
+      ? `?folder=${encodeURIComponent(sessionToRename.folder)}` 
+      : '';
+    
+    const response = await fetch(
+      `/api/v1/sessions/${encodeURIComponent(sessionToRename.name)}/rename${folderQuery}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer poc-token-123`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ new_name: newSessionName.trim() }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Erro ao renomear sessão');
+    }
+
+    toast.success(`Sessão renomeada para "${newSessionName.trim()}"`);
+    
+    // Recarregar lista de sessões
+    loadSessions();
+    setSessionToRename(null);
+    setNewSessionName('');
+  } catch (error) {
+    console.error('Erro ao renomear sessão:', error);
+    toast.error(error instanceof Error ? error.message : 'Erro ao renomear sessão');
+  } finally {
+    setIsRenaming(false);
+  }
+};
+```
+
+**2. Backend Implementation:**
+
+**handlers/sessions.go** - Novo handler de rename:
+```go
+func (h *SessionsHandler) RenameSession(c *gin.Context) {
+	oldName := c.Param("name")
+	folder := c.Query("folder")
+
+	var request struct {
+		NewName string `json:"new_name" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid request body",
+		})
+		return
+	}
+
+	var err error
+	if folder != "" {
+		sessionFolder, parseErr := h.parseSessionFolder(folder)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   parseErr.Error(),
+			})
+			return
+		}
+		
+		err = h.sessionManager.RenameSessionInFolder(oldName, request.NewName, sessionFolder)
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Folder parameter is required for rename operation",
+		})
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"old_name": oldName,
+		"new_name": request.NewName,
+	})
+}
+```
+
+**server.go** - Nova rota:
+```go
+api.PUT("/sessions/:name/rename", sessionHandler.RenameSession)
+```
+
+**3. TypeScript Types:**
+
+**types.ts** - Adicionado campo folder:
+```typescript
+export interface Session {
+  name: string;
+  folder?: string;  // ✅ ADICIONADO para suportar folders
+  type: string;
+  changes: SessionChange[];
+  node_pool_changes?: NodePoolChange[];
+  created_at?: string;
+}
+```
+
+---
+
+## 🐛 ISSUE ATUAL: DROPDOWN MENU NÃO VISÍVEL
+
+### Problema:
+Usuário reportou: "não aparece nada para editar a sessão"
+
+### Análise:
+- Código do dropdown está correto estruturalmente
+- Todos os componentes shadcn/ui importados corretamente
+- Event handlers com `stopPropagation()` para evitar conflitos
+- Possível problema: **visibilidade visual do botão**
+
+### Solução Aplicada:
+```typescript
+// ✅ Adicionado cursor pointer e hover effect para melhor descoberta
+<Button 
+  variant="ghost" 
+  size="icon" 
+  className="h-6 w-6 cursor-pointer hover:bg-accent"  // ⬅️ NOVO
+>
+  <MoreVertical className="h-4 w-4" />
+</Button>
+```
+
+### Próximos Passos:
+1. **Rebuild obrigatório**: `./rebuild-web.sh -b`
+2. **Hard refresh no browser**: Ctrl+Shift+R
+3. **Verificar localização**: Botão três pontinhos (⋮) ao lado do badge de tipo da sessão
+4. **Se ainda invisível**: Considerar usar `variant="outline"` ou adicionar label "Ações"
+
+---
+
+## 🔄 HISTÓRICO DE CORREÇÕES CRÍTICAS (Outubro 2025)
+
+### 1. **Tela Branca no NodePoolEditor** ✅
+**Causa:** Métodos inexistentes no StagingContext
+```typescript
+// ❌ ANTES
+const stagedPool = staging.getNodePool(key);
+staging.addNodePool(modifiedNodePool, nodePool, order);
+
+// ✅ DEPOIS
+const stagedPool = staging.stagedNodePools.find(/* ... */);
 staging.addNodePoolToStaging(nodePool);
-staging.updateNodePoolInStaging(nodePool.cluster_name, nodePool.name, updates);
 ```
 
-**Arquivos Modificados:**
-- `internal/web/frontend/src/components/NodePoolEditor.tsx`
-
----
-
-### 2. **PROBLEMA: HPAEditor Não Salvava no Staging**
-
-**Causa Raiz:**
+### 2. **HPAEditor Não Salvava no Staging** ✅
+**Causa:** Método `staging.add()` não existia
 ```typescript
-// ❌ ERRO: Método inexistente
-staging.add(modifiedHPA, hpa);  // Método não existe no contexto
+// ❌ ANTES
+staging.add(modifiedHPA, hpa);
+
+// ✅ DEPOIS
+staging.addHPAToStaging(hpa);
+staging.updateHPAInStaging(cluster, namespace, name, updates);
 ```
 
-**Solução Aplicada:**
-```typescript
-// ✅ CORRETO: Fluxo correto do staging
-staging.addHPAToStaging(hpa);  // Adicionar primeiro
-staging.updateHPAInStaging(hpa.cluster, hpa.namespace, hpa.name, updates);  // Depois atualizar
-```
+### 3. **Cluster Name Mismatch (-admin suffix)** ✅
+**Causa:** Sessions salvavam sem `-admin`, kubeconfig tinha com `-admin`
+**Solução:** `StagingContext.loadFromSession()` adiciona `-admin` automaticamente
 
-**Arquivos Modificados:**
-- `internal/web/frontend/src/components/HPAEditor.tsx`
-
----
-
-### 3. **PROBLEMA: Index.tsx com Métodos Inexistentes**
-
-**Causa Raiz:**
-```typescript
-// ❌ ERRO: Propriedades que não existiam
-modifiedCount={staging.count + staging.nodePoolCount}  // Não existe
-staging.getAll()  // Não existe
-staging.getAllNodePools()  // Não existe
-```
-
-**Solução Aplicada:**
-```typescript
-// ✅ CORRETO: Usar API correta do StagingContext
-modifiedCount={staging.getChangesCount().total}
-
-const modifiedHPAs = staging.stagedHPAs
-  .filter(hpa => hpa.isModified)
-  .map(hpa => ({
-    key: `${hpa.cluster}/${hpa.namespace}/${hpa.name}`,
-    current: hpa,
-    original: { ...hpa, ...hpa.originalValues } as HPA,
-  }));
-```
-
-**Arquivos Modificados:**
-- `internal/web/frontend/src/pages/Index.tsx`
+### 4. **Build Process** ✅
+**Descoberta:** DEVE usar `./rebuild-web.sh -b` - builds manuais não funcionam corretamente

@@ -12,10 +12,16 @@ interface StagingNodePool extends NodePool {
   originalValues: Partial<NodePool>;
 }
 
+interface LoadedSessionInfo {
+  sessionName: string;
+  clusters: string[];
+}
+
 interface StagingContextType {
   // Estado atual da staging area
   stagedHPAs: StagingHPA[];
   stagedNodePools: StagingNodePool[];
+  loadedSessionInfo: LoadedSessionInfo | null;
   
   // Métodos para HPAs
   addHPAToStaging: (hpa: HPA) => void;
@@ -63,6 +69,7 @@ interface StagingProviderProps {
 export function StagingProvider({ children }: StagingProviderProps) {
   const [stagedHPAs, setStagedHPAs] = useState<StagingHPA[]>([]);
   const [stagedNodePools, setStagedNodePools] = useState<StagingNodePool[]>([]);
+  const [loadedSessionInfo, setLoadedSessionInfo] = useState<LoadedSessionInfo | null>(null);
 
   // HPAs
   const addHPAToStaging = useCallback((hpa: HPA) => {
@@ -142,15 +149,32 @@ export function StagingProvider({ children }: StagingProviderProps) {
   const clearStaging = useCallback(() => {
     setStagedHPAs([]);
     setStagedNodePools([]);
+    setLoadedSessionInfo(null);
   }, []);
 
   const loadFromSession = useCallback((session: Session) => {
+    // Extrair informações da sessão
+    const clusters = new Set<string>();
+    session.changes.forEach(change => clusters.add(change.cluster));
+    session.node_pool_changes.forEach(change => clusters.add(change.cluster));
+    
+    setLoadedSessionInfo({
+      sessionName: session.name || 'Sessão sem nome',
+      clusters: Array.from(clusters)
+    });
+    
     // Converter HPAChanges para StagingHPAs
-    const hpas: StagingHPA[] = session.changes.map(change => ({
-      name: change.hpa_name,
-      namespace: change.namespace,
-      cluster: change.cluster,
-      min_replicas: change.new_values?.min_replicas ?? null,
+    const hpas: StagingHPA[] = session.changes.map(change => {
+      // Adicionar sufixo -admin ao cluster se necessário
+      const clusterWithAdmin = change.cluster.endsWith('-admin')
+        ? change.cluster
+        : `${change.cluster}-admin`;
+      
+      return {
+        name: change.hpa_name,
+        namespace: change.namespace,
+        cluster: clusterWithAdmin,
+        min_replicas: change.new_values?.min_replicas ?? null,
       max_replicas: change.new_values?.max_replicas ?? 0,
       current_replicas: change.original_values?.min_replicas ?? 0,
       target_cpu: change.new_values?.target_cpu ?? null,
@@ -178,13 +202,20 @@ export function StagingProvider({ children }: StagingProviderProps) {
         perform_statefulset_rollout: change.original_values?.perform_statefulset_rollout,
         deployment_name: change.original_values?.deployment_name,
       }
-    }));
+    };
+    });
 
     // Converter NodePoolChanges para StagingNodePools
-    const nodePools: StagingNodePool[] = session.node_pool_changes.map(change => ({
-      name: change.node_pool_name,
-      cluster_name: change.cluster,
-      resource_group: change.resource_group,
+    const nodePools: StagingNodePool[] = session.node_pool_changes.map(change => {
+      // Adicionar sufixo -admin ao cluster se necessário
+      const clusterWithAdmin = change.cluster.endsWith('-admin')
+        ? change.cluster
+        : `${change.cluster}-admin`;
+      
+      return {
+        name: change.node_pool_name,
+        cluster_name: clusterWithAdmin,
+        resource_group: change.resource_group,
       subscription: change.subscription,
       vm_size: '', // Não disponível em NodePoolChange
       node_count: change.new_values.node_count,
@@ -211,7 +242,8 @@ export function StagingProvider({ children }: StagingProviderProps) {
         max_node_count: change.original_values.max_node_count,
         autoscaling_enabled: change.original_values.autoscaling_enabled,
       }
-    }));
+    };
+    });
 
     setStagedHPAs(hpas);
     setStagedNodePools(nodePools);
@@ -321,6 +353,7 @@ export function StagingProvider({ children }: StagingProviderProps) {
   const value: StagingContextType = {
     stagedHPAs,
     stagedNodePools,
+    loadedSessionInfo,
     addHPAToStaging,
     updateHPAInStaging,
     removeHPAFromStaging,

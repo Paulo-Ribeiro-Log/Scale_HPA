@@ -114,8 +114,14 @@ func (s *Server) setupRoutes() {
 	clusterHandler := handlers.NewClusterHandler(s.kubeManager)
 	api.GET("/clusters", clusterHandler.List)
 	api.GET("/clusters/:name/test", clusterHandler.Test)
+	api.GET("/clusters/:name/config", clusterHandler.GetClusterConfig)
+	api.POST("/clusters/:name/context", clusterHandler.SwitchToClusterContext)
 	api.POST("/clusters/switch-context", clusterHandler.SwitchContext)
 	api.GET("/clusters/info", clusterHandler.GetClusterInfo)
+
+	// Azure
+	azureHandler := handlers.NewAzureHandler()
+	api.POST("/azure/subscription", azureHandler.SetSubscription)
 
 	// Namespaces
 	namespaceHandler := handlers.NewNamespaceHandler(s.kubeManager)
@@ -155,6 +161,7 @@ func (s *Server) setupRoutes() {
 	api.GET("/sessions/:name", sessionHandler.GetSession)
 	api.POST("/sessions", sessionHandler.SaveSession)
 	api.DELETE("/sessions/:name", sessionHandler.DeleteSession)
+	api.PUT("/sessions/:name/rename", sessionHandler.RenameSession)
 	api.GET("/sessions/templates", sessionHandler.GetSessionTemplates)
 }
 
@@ -184,13 +191,17 @@ func (s *Server) setupStatic() {
 	s.router.StaticFileFS("/robots.txt", "robots.txt", http.FS(staticFS))
 	s.router.StaticFileFS("/placeholder.svg", "placeholder.svg", http.FS(staticFS))
 
-	// Rota raiz serve index.html
+	// Rota raiz serve index.html (sem cache)
 	s.router.GET("/", func(c *gin.Context) {
 		data, err := staticFiles.ReadFile("static/index.html")
 		if err != nil {
 			c.String(404, "Frontend not found - run 'make web-build' first")
 			return
 		}
+		// Headers para prevenir cache
+		c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+		c.Header("Pragma", "no-cache")
+		c.Header("Expires", "0")
 		c.Data(200, "text/html; charset=utf-8", data)
 	})
 
@@ -206,12 +217,16 @@ func (s *Server) setupStatic() {
 			return
 		}
 
-		// SPA fallback para outras rotas
+		// SPA fallback para outras rotas (sem cache)
 		data, err := staticFiles.ReadFile("static/index.html")
 		if err != nil {
 			c.String(404, "Not found")
 			return
 		}
+		// Headers para prevenir cache
+		c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+		c.Header("Pragma", "no-cache")
+		c.Header("Expires", "0")
 		c.Data(200, "text/html; charset=utf-8", data)
 	})
 }
