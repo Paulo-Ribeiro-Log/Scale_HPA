@@ -58,6 +58,7 @@ const SESSION_FOLDERS = [
   { value: 'HPA-Downscale', label: 'HPA-Downscale', icon: '📉', description: 'HPA scale down sessions' },
   { value: 'Node-Upscale', label: 'Node-Upscale', icon: '🚀', description: 'Node pool scale up sessions' },
   { value: 'Node-Downscale', label: 'Node-Downscale', icon: '⬇️', description: 'Node pool scale down sessions' },
+  { value: 'Rollback', label: 'Rollback', icon: '⏪', description: 'Rollback sessions' },
 ];
 
 // Mock para agora - posteriormente integrar com API real

@@ -1674,6 +1674,304 @@ const memoryThresholds = { warning: 80, danger: 95 };
 
 # CLAUDE.md - Sessão de Desenvolvimento Web Interface
 
+## Data: 22 de Outubro de 2025
+## Objetivo: Sistema de captura de snapshot direto do cluster para rollback
+
+---
+
+## 🚨 SESSÃO ATUAL: SNAPSHOT DE CLUSTER PARA ROLLBACK
+
+### Problema Resolvido:
+Feature de "Capturar Snapshot" estava salvando valores zeros porque usava dados do cache (staging context) ao invés de buscar dados frescos do cluster.
+
+### Solução Implementada:
+
+**1. Função de Captura Direta do Cluster:**
+
+**SaveSessionModal.tsx** - Nova função `fetchClusterDataForSnapshot()`:
+```typescript
+// Busca dados FRESCOS do cluster (não usa cache)
+const fetchClusterDataForSnapshot = async () => {
+  if (!selectedCluster || selectedCluster === 'default') {
+    console.error('[fetchClusterDataForSnapshot] Cluster inválido');
+    toast.error('Por favor, selecione um cluster válido antes de capturar o snapshot');
+    return null;
+  }
+
+  setCapturingSnapshot(true);
+
+  try {
+    // Buscar HPAs de TODOS os namespaces (snapshot deve capturar tudo)
+    const hpaUrl = `/api/v1/hpas?cluster=${encodeURIComponent(selectedCluster)}`;
+    const hpaResponse = await fetch(hpaUrl, {
+      headers: { 'Authorization': 'Bearer poc-token-123' }
+    });
+
+    if (!hpaResponse.ok) {
+      throw new Error(`Erro ao buscar HPAs: ${hpaResponse.statusText}`);
+    }
+
+    const hpaData = await hpaResponse.json();
+    const hpas: HPA[] = hpaData.data || [];
+
+    // Buscar Node Pools
+    const npUrl = `/api/v1/nodepools?cluster=${encodeURIComponent(selectedCluster)}`;
+    const npResponse = await fetch(npUrl, {
+      headers: { 'Authorization': 'Bearer poc-token-123' }
+    });
+
+    if (!npResponse.ok) {
+      throw new Error(`Erro ao buscar Node Pools: ${npResponse.statusText}`);
+    }
+
+    const npData = await npResponse.json();
+    const nodePools: NodePool[] = npData.data || [];
+
+    // Transformar HPAs para formato de sessão
+    const hpaChanges = hpas.map(hpa => ({
+      cluster: hpa.cluster,
+      namespace: hpa.namespace,
+      hpa_name: hpa.name,
+      original_values: {
+        min_replicas: hpa.min_replicas,
+        max_replicas: hpa.max_replicas,
+        target_cpu: hpa.target_cpu_percent,
+        target_memory: hpa.target_memory_percent,
+        cpu_request: hpa.cpu_request,
+        cpu_limit: hpa.cpu_limit,
+        memory_request: hpa.memory_request,
+        memory_limit: hpa.memory_limit,
+      },
+      new_values: {
+        min_replicas: hpa.min_replicas,
+        max_replicas: hpa.max_replicas,
+        target_cpu: hpa.target_cpu_percent,
+        target_memory: hpa.target_memory_percent,
+        cpu_request: hpa.cpu_request,
+        cpu_limit: hpa.cpu_limit,
+        memory_request: hpa.memory_request,
+        memory_limit: hpa.memory_limit,
+        perform_rollout: false,
+        perform_daemonset_rollout: false,
+        perform_statefulset_rollout: false,
+      },
+    }));
+
+    // Transformar Node Pools para formato de sessão
+    const nodePoolChanges = nodePools.map(nodePool => ({
+      cluster: nodePool.cluster,
+      node_pool_name: nodePool.name,
+      resource_group: nodePool.resource_group || '',
+      original_values: {
+        node_count: nodePool.node_count,
+        autoscaling_enabled: nodePool.autoscaling?.enabled || false,
+        min_node_count: nodePool.autoscaling?.min_count || 0,
+        max_node_count: nodePool.autoscaling?.max_count || 0,
+      },
+      new_values: {
+        node_count: nodePool.node_count,
+        autoscaling_enabled: nodePool.autoscaling?.enabled || false,
+        min_node_count: nodePool.autoscaling?.min_count || 0,
+        max_node_count: nodePool.autoscaling?.max_count || 0,
+      },
+    }));
+
+    toast.success(`Snapshot capturado: ${hpas.length} HPAs, ${nodePools.length} Node Pools`);
+
+    return {
+      changes: hpaChanges,
+      node_pool_changes: nodePoolChanges,
+    };
+  } catch (error) {
+    console.error('Erro ao capturar snapshot:', error);
+    toast.error(error instanceof Error ? error.message : 'Erro ao capturar snapshot do cluster');
+    return null;
+  } finally {
+    setCapturingSnapshot(false);
+  }
+};
+```
+
+**2. Integração com TabManager:**
+
+**Problema:** SaveSessionModal não conseguia acessar cluster selecionado porque:
+- Index.tsx (componente antigo) não sincronizava com TabManager
+- `pageState.selectedCluster` estava vazio quando deveria conter o cluster
+
+**Solução:** Sincronização do Index.tsx com TabManager:
+
+```typescript
+// Index.tsx - Importar TabManager
+import { useTabManager } from "@/contexts/TabContext";
+
+// Hook para sincronizar estado
+const { updateActiveTabState } = useTabManager();
+
+// Handler de cluster change atualizado
+const handleClusterChange = async (newCluster: string) => {
+  if (newCluster === selectedCluster) return;
+
+  try {
+    await apiClient.switchContext(newCluster);
+    
+    // Atualizar estado local
+    setSelectedCluster(newCluster);
+    setSelectedNamespace("");
+    setSelectedHPA(null);
+    setSelectedNodePool(null);
+    
+    // Sincronizar com TabManager (CRÍTICO para SaveSessionModal)
+    updateActiveTabState({
+      selectedCluster: newCluster,
+      selectedNamespace: "",
+      selectedHPA: null,
+      selectedNodePool: null,
+      isContextSwitching: false
+    });
+    
+    toast.success(`Contexto alterado para: ${newCluster}`);
+  } catch (error) {
+    console.error('[ClusterSwitch] Error:', error);
+    toast.error('Erro ao alterar contexto');
+  } finally {
+    setIsContextSwitching(false);
+  }
+};
+```
+
+**3. Correção do TabProvider:**
+
+**Problema:** TabProvider não estava envolvendo a aplicação, causando erro "useTabManager must be used within a TabProvider"
+
+**Solução:** Adicionar TabProvider no App.tsx:
+
+```typescript
+// App.tsx
+import { TabProvider } from "./contexts/TabContext";
+
+return (
+  <ThemeProvider defaultTheme="system" storageKey="k8s-hpa-theme">
+    <QueryClientProvider client={queryClient}>
+      <TabProvider>  {/* ✅ ADICIONADO */}
+        <StagingProvider>
+          <TooltipProvider>
+            {/* ... resto da aplicação ... */}
+          </TooltipProvider>
+        </StagingProvider>
+      </TabProvider>
+    </QueryClientProvider>
+  </ThemeProvider>
+);
+```
+
+**4. Handler de Save Assíncrono:**
+
+```typescript
+// SaveSessionModal.tsx - handleSave agora é async
+const handleSave = async () => {
+  if (!sessionName.trim() || !selectedFolder) {
+    return;
+  }
+
+  let sessionData;
+
+  if (saveMode === 'staging' && hasChanges) {
+    // Modo staging: salvar alterações pendentes
+    sessionData = staging.getSessionData();
+  } else {
+    // Modo snapshot: capturar estado atual para rollback (buscar dados frescos do cluster)
+    const snapshotData = await fetchClusterDataForSnapshot();
+    if (!snapshotData) {
+      return; // Erro já tratado em fetchClusterDataForSnapshot
+    }
+    sessionData = snapshotData;
+  }
+  
+  saveSession({
+    name: sessionName.trim(),
+    folder: selectedFolder,
+    description: description.trim(),
+    template: selectedTemplate || 'custom',
+    changes: sessionData.changes,
+    node_pool_changes: sessionData.node_pool_changes,
+  }, {
+    onSuccess: () => {
+      onOpenChange(false);
+      onSuccess?.();
+    },
+  });
+};
+```
+
+**5. Estado de Loading:**
+
+```typescript
+// Adicionar estado de captura de snapshot
+const [capturingSnapshot, setCapturingSnapshot] = useState<boolean>(false);
+
+// Desabilitar botões durante captura
+<Button 
+  onClick={handleSave} 
+  disabled={!isValid || saving || capturingSnapshot}
+>
+  {(saving || capturingSnapshot) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+  {saveMode === 'snapshot' ? 'Capturar Snapshot' : 'Salvar Sessão'}
+</Button>
+```
+
+### Features Implementadas:
+
+1. ✅ **Busca Direta do Cluster** - Chama API endpoints diretamente sem usar cache
+2. ✅ **Captura Todos Namespaces** - Snapshot pega TODOS os HPAs de TODOS os namespaces
+3. ✅ **Captura Todos Node Pools** - Inclui todos os node pools do cluster
+4. ✅ **Transformação para Session Format** - original_values = new_values (snapshot do estado atual)
+5. ✅ **Estado de Loading** - Spinner durante captura com botões desabilitados
+6. ✅ **Validação de Cluster** - Rejeita cluster "default" (placeholder inicial)
+7. ✅ **Sincronização TabManager** - Index.tsx atualiza pageState quando cluster muda
+8. ✅ **Logs de Debug** - Console logs para rastreamento de problemas
+9. ✅ **Toast Notifications** - Feedback visual de sucesso/erro
+10. ✅ **Error Handling** - Tratamento robusto de erros de rede
+
+### Workflow Completo:
+
+1. Usuário seleciona cluster no dropdown
+2. Index.tsx chama `handleClusterChange()` que:
+   - Atualiza estado local (`setSelectedCluster`)
+   - Sincroniza com TabManager (`updateActiveTabState`)
+3. Usuário clica "Salvar Sessão"
+4. SaveSessionModal detecta modo snapshot (sem mudanças pendentes)
+5. Clica "Capturar Snapshot"
+6. `fetchClusterDataForSnapshot()` executa:
+   - Valida cluster selecionado
+   - Busca HPAs via GET `/api/v1/hpas?cluster=X`
+   - Busca Node Pools via GET `/api/v1/nodepools?cluster=X`
+   - Transforma para formato de sessão
+   - Mostra toast com contagem de recursos
+7. Session é salva na pasta "Rollback"
+
+### Arquivos Modificados:
+
+- `internal/web/frontend/src/components/SaveSessionModal.tsx` - Função de snapshot e validação
+- `internal/web/frontend/src/pages/Index.tsx` - Sincronização com TabManager
+- `internal/web/frontend/src/App.tsx` - Adição do TabProvider
+
+### Build Commands:
+
+```bash
+# Frontend
+cd internal/web/frontend
+npm run build
+
+# Backend Go (embeda static files)
+cd ../../..
+make build
+
+# Executar
+./build/k8s-hpa-manager web
+```
+
+---
+
 ## Data: 21 de Outubro de 2025
 ## Objetivo: Sistema de gerenciamento de sessões salvas (rename, edit, delete)
 

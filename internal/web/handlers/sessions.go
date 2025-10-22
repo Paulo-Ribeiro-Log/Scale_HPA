@@ -95,6 +95,7 @@ func (h *SessionsHandler) ListAllSessions(c *gin.Context) {
 		session.FolderHPADownscale,
 		session.FolderNodeUpscale,
 		session.FolderNodeDownscale,
+		session.FolderRollback,
 	}
 
 	for _, folder := range folders {
@@ -160,6 +161,11 @@ func (h *SessionsHandler) ListSessionFolders(c *gin.Context) {
 			Name:        string(session.FolderNodeDownscale),
 			Description: "Node pool scale down sessions",
 			Count:       h.getSessionCountInFolder(session.FolderNodeDownscale),
+		},
+		{
+			Name:        string(session.FolderRollback),
+			Description: "Rollback sessions",
+			Count:       h.getSessionCountInFolder(session.FolderRollback),
 		},
 	}
 
@@ -672,6 +678,8 @@ func (h *SessionsHandler) parseSessionFolder(folderName string) (session.Session
 		return session.FolderNodeUpscale, nil
 	case string(session.FolderNodeDownscale):
 		return session.FolderNodeDownscale, nil
+	case string(session.FolderRollback):
+		return session.FolderRollback, nil
 	default:
 		return "", fmt.Errorf("invalid folder name: %s", folderName)
 	}

@@ -9,6 +9,7 @@ import { Login } from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import { apiClient } from "./lib/api/client";
 import { StagingProvider } from "./contexts/StagingContext";
+import { TabProvider } from "./contexts/TabContext";
 import { ThemeProvider } from "@/components/theme-provider";
 
 const queryClient = new QueryClient();
@@ -47,11 +48,12 @@ const App = () => {
   return (
     <ThemeProvider defaultTheme="system" storageKey="k8s-hpa-theme">
       <QueryClientProvider client={queryClient}>
-        <StagingProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
+        <TabProvider>
+          <StagingProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
               <Routes>
               <Route
                 path="/login"
@@ -79,6 +81,7 @@ const App = () => {
             </BrowserRouter>
           </TooltipProvider>
         </StagingProvider>
+        </TabProvider>
       </QueryClientProvider>
     </ThemeProvider>
   );

@@ -20,10 +20,12 @@ import {
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Save, Folder, FileText, Hash } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { useSessionTemplates, useSaveSession } from '@/hooks/useSessions';
 import { useStaging } from '@/contexts/StagingContext';
-import type { SessionTemplate } from '@/lib/api/types';
+import { useTabManager } from '@/contexts/TabContext';
+import type { SessionTemplate, HPA, NodePool } from '@/lib/api/types';
 
 interface SaveSessionModalProps {
   open: boolean;
@@ -53,6 +55,11 @@ const SESSION_FOLDERS = [
     description: 'Node pool scale down sessions',
     icon: '⬇️',
   },
+  {
+    name: 'Rollback',
+    description: 'Rollback sessions',
+    icon: '⏪',
+  },
 ];
 
 export function SaveSessionModal({ open, onOpenChange, onSuccess }: SaveSessionModalProps) {
@@ -63,13 +70,33 @@ export function SaveSessionModal({ open, onOpenChange, onSuccess }: SaveSessionM
   const [customAction, setCustomAction] = useState<string>('');
   const [saveMode, setSaveMode] = useState<'staging' | 'snapshot'>('staging');
   const [allowCustomName, setAllowCustomName] = useState<boolean>(false);
+  const [capturingSnapshot, setCapturingSnapshot] = useState<boolean>(false);
 
   const { data: templates = [], isLoading: loadingTemplates } = useSessionTemplates();
   const { mutate: saveSession, isPending: saving, error: saveError } = useSaveSession();
   const staging = useStaging();
+  const { getActiveTab } = useTabManager();
+  const activeTab = getActiveTab();
+  // Para snapshot, APENAS usar pageState.selectedCluster (não usar clusterContext "default" como fallback)
+  const selectedCluster = activeTab?.pageState?.selectedCluster || '';
+  const selectedNamespace = activeTab?.pageState?.selectedNamespace || '';
 
   const changesCount = staging.getChangesCount();
   const hasChanges = changesCount.total > 0;
+
+  // Debug: Log do estado da aba quando modal abrir
+  useEffect(() => {
+    if (open) {
+      console.log('[SaveSessionModal] Modal aberto - Estado da aba:', {
+        activeTab: activeTab?.id,
+        selectedCluster,
+        selectedNamespace,
+        pageState: activeTab?.pageState,
+        clusterContext: activeTab?.clusterContext,
+        hasChanges,
+      });
+    }
+  }, [open, activeTab, selectedCluster, selectedNamespace, hasChanges]);
 
   // Detectar modo automaticamente baseado nas alterações
   useEffect(() => {
@@ -101,7 +128,7 @@ export function SaveSessionModal({ open, onOpenChange, onSuccess }: SaveSessionM
     }
   }, [selectedTemplate, customAction, templates, changesCount, saveMode, allowCustomName]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!sessionName.trim() || !selectedFolder) {
       return;
     }
@@ -112,8 +139,12 @@ export function SaveSessionModal({ open, onOpenChange, onSuccess }: SaveSessionM
       // Modo staging: salvar alterações pendentes
       sessionData = staging.getSessionData();
     } else {
-      // Modo snapshot: capturar estado atual para rollback
-      sessionData = captureCurrentStateForRollback();
+      // Modo snapshot: capturar estado atual para rollback (buscar dados frescos do cluster)
+      const snapshotData = await fetchClusterDataForSnapshot();
+      if (!snapshotData) {
+        return; // Erro já tratado em fetchClusterDataForSnapshot
+      }
+      sessionData = snapshotData;
     }
     
     saveSession({
@@ -131,14 +162,114 @@ export function SaveSessionModal({ open, onOpenChange, onSuccess }: SaveSessionM
     });
   };
 
-  // Função para capturar estado atual (sem staging)
-  const captureCurrentStateForRollback = () => {
-    // TODO: Implementar captura do estado atual dos HPAs e Node Pools
-    // Por enquanto retornar estrutura vazia
-    return {
-      changes: [],
-      node_pool_changes: []
-    };
+  // Função para buscar dados frescos do cluster para snapshot
+  const fetchClusterDataForSnapshot = async () => {
+    // Validar se há cluster selecionado e se não é o placeholder "default"
+    if (!selectedCluster || selectedCluster === 'default') {
+      console.error('[fetchClusterDataForSnapshot] Cluster inválido:', {
+        selectedCluster,
+        activeTab,
+        pageState: activeTab?.pageState,
+        clusterContext: activeTab?.clusterContext
+      });
+      toast.error('Por favor, selecione um cluster válido antes de capturar o snapshot');
+      return null;
+    }
+
+    console.log('[fetchClusterDataForSnapshot] Capturando snapshot do cluster:', selectedCluster);
+    setCapturingSnapshot(true);
+
+    try {
+      // Buscar HPAs de TODOS os namespaces (snapshot deve capturar tudo)
+      const hpaUrl = `/api/v1/hpas?cluster=${encodeURIComponent(selectedCluster)}`;
+      console.log('[fetchClusterDataForSnapshot] Buscando HPAs:', hpaUrl);
+
+      const hpaResponse = await fetch(hpaUrl, {
+        headers: { 'Authorization': 'Bearer poc-token-123' }
+      });
+
+      if (!hpaResponse.ok) {
+        throw new Error(`Erro ao buscar HPAs: ${hpaResponse.statusText}`);
+      }
+
+      const hpaData = await hpaResponse.json();
+      const hpas: HPA[] = hpaData.data || [];
+
+      // Buscar Node Pools
+      const npUrl = `/api/v1/nodepools?cluster=${encodeURIComponent(selectedCluster)}`;
+      const npResponse = await fetch(npUrl, {
+        headers: { 'Authorization': 'Bearer poc-token-123' }
+      });
+
+      if (!npResponse.ok) {
+        throw new Error(`Erro ao buscar Node Pools: ${npResponse.statusText}`);
+      }
+
+      const npData = await npResponse.json();
+      const nodePools: NodePool[] = npData.data || [];
+
+      // Transformar HPAs para formato de sessão
+      const hpaChanges = hpas.map(hpa => ({
+        cluster: hpa.cluster,
+        namespace: hpa.namespace,
+        hpa_name: hpa.name,
+        original_values: {
+          min_replicas: hpa.min_replicas,
+          max_replicas: hpa.max_replicas,
+          target_cpu: hpa.target_cpu_percent,
+          target_memory: hpa.target_memory_percent,
+          cpu_request: hpa.cpu_request,
+          cpu_limit: hpa.cpu_limit,
+          memory_request: hpa.memory_request,
+          memory_limit: hpa.memory_limit,
+        },
+        new_values: {
+          min_replicas: hpa.min_replicas,
+          max_replicas: hpa.max_replicas,
+          target_cpu: hpa.target_cpu_percent,
+          target_memory: hpa.target_memory_percent,
+          cpu_request: hpa.cpu_request,
+          cpu_limit: hpa.cpu_limit,
+          memory_request: hpa.memory_request,
+          memory_limit: hpa.memory_limit,
+          perform_rollout: false,
+          perform_daemonset_rollout: false,
+          perform_statefulset_rollout: false,
+        },
+      }));
+
+      // Transformar Node Pools para formato de sessão
+      const nodePoolChanges = nodePools.map(nodePool => ({
+        cluster: nodePool.cluster,
+        node_pool_name: nodePool.name,
+        resource_group: nodePool.resource_group || '',
+        original_values: {
+          node_count: nodePool.node_count,
+          autoscaling_enabled: nodePool.autoscaling?.enabled || false,
+          min_node_count: nodePool.autoscaling?.min_count || 0,
+          max_node_count: nodePool.autoscaling?.max_count || 0,
+        },
+        new_values: {
+          node_count: nodePool.node_count,
+          autoscaling_enabled: nodePool.autoscaling?.enabled || false,
+          min_node_count: nodePool.autoscaling?.min_count || 0,
+          max_node_count: nodePool.autoscaling?.max_count || 0,
+        },
+      }));
+
+      toast.success(`Snapshot capturado: ${hpas.length} HPAs, ${nodePools.length} Node Pools`);
+
+      return {
+        changes: hpaChanges,
+        node_pool_changes: nodePoolChanges,
+      };
+    } catch (error) {
+      console.error('Erro ao capturar snapshot:', error);
+      toast.error(error instanceof Error ? error.message : 'Erro ao capturar snapshot do cluster');
+      return null;
+    } finally {
+      setCapturingSnapshot(false);
+    }
   };
 
   // Obter preview das alterações que serão salvas
@@ -404,11 +535,11 @@ export function SaveSessionModal({ open, onOpenChange, onSuccess }: SaveSessionM
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving || capturingSnapshot}>
             Cancelar
           </Button>
-          <Button onClick={handleSave} disabled={!isValid || saving}>
-            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button onClick={handleSave} disabled={!isValid || saving || capturingSnapshot}>
+            {(saving || capturingSnapshot) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {saveMode === 'snapshot' ? 'Capturar Snapshot' : 'Salvar Sessão'}
           </Button>
         </DialogFooter>

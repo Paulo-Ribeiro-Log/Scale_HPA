@@ -27,6 +27,7 @@ import {
 import { useClusters, useNamespaces, useHPAs, useNodePools } from "@/hooks/useAPI";
 import type { HPA, NodePool } from "@/lib/api/types";
 import { useStaging } from "@/contexts/StagingContext";
+import { useTabManager } from "@/contexts/TabContext";
 import { apiClient } from "@/lib/api/client";
 import { toast } from "sonner";
 
@@ -47,6 +48,9 @@ const Index = ({ onLogout }: IndexProps) => {
   const [showSaveSessionModal, setShowSaveSessionModal] = useState(false);
   const [showLoadSessionModal, setShowLoadSessionModal] = useState(false);
   const [isContextSwitching, setIsContextSwitching] = useState(false);
+  
+  // TabManager para sincronizar estado com abas
+  const { updateActiveTabState } = useTabManager();
 
   // Staging context
   const staging = useStaging();
@@ -76,13 +80,22 @@ const Index = ({ onLogout }: IndexProps) => {
       await apiClient.switchContext(newCluster);
       console.log(`[ClusterSwitch] Context switched successfully to ${newCluster}`);
       
-      // 2. Atualizar estado do frontend
+      // 2. Atualizar estado do frontend local
       setSelectedCluster(newCluster);
       setSelectedNamespace(""); // Reset namespace selection
       setSelectedHPA(null); // Reset HPA selection  
       setSelectedNodePool(null); // Reset NodePool selection
       
-      // 3. Mostrar toast de sucesso
+      // 3. Sincronizar com TabManager (CRÍTICO para SaveSessionModal)
+      updateActiveTabState({
+        selectedCluster: newCluster,
+        selectedNamespace: "",
+        selectedHPA: null,
+        selectedNodePool: null,
+        isContextSwitching: false
+      });
+      
+      // 4. Mostrar toast de sucesso
       toast.success(`Contexto alterado para: ${newCluster}`);
       
     } catch (error) {
