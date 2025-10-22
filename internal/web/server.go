@@ -160,6 +160,7 @@ func (s *Server) setupRoutes() {
 	api.GET("/sessions/folders/:folder", sessionHandler.ListSessionsInFolder)
 	api.GET("/sessions/:name", sessionHandler.GetSession)
 	api.POST("/sessions", sessionHandler.SaveSession)
+	api.PUT("/sessions/:name", sessionHandler.UpdateSession)
 	api.DELETE("/sessions/:name", sessionHandler.DeleteSession)
 	api.PUT("/sessions/:name/rename", sessionHandler.RenameSession)
 	api.GET("/sessions/templates", sessionHandler.GetSessionTemplates)

@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
+import { EditSessionModal } from './EditSessionModal';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -120,6 +121,7 @@ export function LoadSessionModal({ open, onOpenChange, onSessionLoaded }: LoadSe
   // Estados para gerenciamento de sessões
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
   const [sessionToRename, setSessionToRename] = useState<Session | null>(null);
+  const [sessionToEdit, setSessionToEdit] = useState<Session | null>(null);
   const [newSessionName, setNewSessionName] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -490,13 +492,49 @@ export function LoadSessionModal({ open, onOpenChange, onSessionLoaded }: LoadSe
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem 
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    // Carregar detalhes completos da sessão antes de editar
+                                    try {
+                                      const folderQuery = session.folder ? `?folder=${encodeURIComponent(session.folder)}` : '';
+                                      const response = await fetch(
+                                        `/api/v1/sessions/${encodeURIComponent(session.name)}${folderQuery}`,
+                                        {
+                                          headers: {
+                                            'Authorization': `Bearer poc-token-123`,
+                                            'Content-Type': 'application/json',
+                                          },
+                                        }
+                                      );
+                                      
+                                      if (!response.ok) {
+                                        throw new Error(`HTTP ${response.status}`);
+                                      }
+                                      
+                                      const data = await response.json();
+                                      
+                                      if (data.success && data.data) {
+                                        setSessionToEdit(data.data);
+                                      } else {
+                                        throw new Error('Formato inválido');
+                                      }
+                                    } catch (err) {
+                                      console.error('Erro ao carregar sessão:', err);
+                                      toast.error('Erro ao carregar sessão para edição');
+                                    }
+                                  }}
+                                >
+                                  <Edit2 className="h-4 w-4 mr-2" />
+                                  Editar Conteúdo
+                                </DropdownMenuItem>
+                                <DropdownMenuItem 
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setSessionToRename(session);
                                     setNewSessionName(session.name);
                                   }}
                                 >
-                                  <Edit2 className="h-4 w-4 mr-2" />
+                                  <FileText className="h-4 w-4 mr-2" />
                                   Renomear
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
@@ -745,6 +783,19 @@ export function LoadSessionModal({ open, onOpenChange, onSessionLoaded }: LoadSe
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {/* Modal de Edição de Conteúdo */}
+      <EditSessionModal
+        session={sessionToEdit}
+        open={!!sessionToEdit}
+        onOpenChange={(open) => {
+          if (!open) setSessionToEdit(null);
+        }}
+        onSave={() => {
+          loadSessions(); // Recarregar lista após salvar
+          setSessionToEdit(null);
+        }}
+      />
     </Dialog>
   );
 }

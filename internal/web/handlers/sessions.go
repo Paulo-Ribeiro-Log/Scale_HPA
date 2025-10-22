@@ -283,9 +283,28 @@ func (h *SessionsHandler) GetSession(c *gin.Context) {
 		return
 	}
 
+	// Adicionar o campo folder à resposta se foi especificado
+	response := map[string]interface{}{
+		"name":              sess.Name,
+		"created_at":        sess.CreatedAt,
+		"created_by":        sess.CreatedBy,
+		"description":       sess.Description,
+		"template_used":     sess.TemplateUsed,
+		"metadata":          sess.Metadata,
+		"changes":           sess.Changes,
+		"node_pool_changes": sess.NodePoolChanges,
+		"resource_changes":  sess.ResourceChanges,
+		"rollback_data":     sess.RollbackData,
+	}
+
+	// Adicionar folder se foi especificado na query
+	if folder != "" {
+		response["folder"] = folder
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    sess,
+		"data":    response,
 	})
 }
 
@@ -498,6 +517,108 @@ func (h *SessionsHandler) RenameSession(c *gin.Context) {
 			"message":  "Session renamed successfully",
 			"old_name": oldName,
 			"new_name": request.NewName,
+		},
+	})
+}
+
+// UpdateSession updates an existing session content
+func (h *SessionsHandler) UpdateSession(c *gin.Context) {
+	if h.sessionManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "SESSION_MANAGER_ERROR",
+				"message": "Session manager not initialized",
+			},
+		})
+		return
+	}
+
+	folder := c.Query("folder")
+
+	if folder == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "FOLDER_REQUIRED",
+				"message": "Folder parameter is required for update operation",
+			},
+		})
+		return
+	}
+
+	// Parse da sessão do body
+	var updatedSession models.Session
+	if err := c.ShouldBindJSON(&updatedSession); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_REQUEST",
+				"message": fmt.Sprintf("Invalid session data: %v", err),
+			},
+		})
+		return
+	}
+
+	// Parse do folder
+	sessionFolder, parseErr := h.parseSessionFolder(folder)
+	if parseErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_FOLDER",
+				"message": fmt.Sprintf("Invalid folder name: %s", folder),
+			},
+		})
+		return
+	}
+
+	// Atualizar metadata
+	updatedSession.Metadata = &models.SessionMetadata{
+		ClustersAffected: make([]string, 0),
+		NamespacesCount:  0,
+		HPACount:         len(updatedSession.Changes),
+		NodePoolCount:    len(updatedSession.NodePoolChanges),
+		ResourceCount:    len(updatedSession.ResourceChanges),
+		TotalChanges:     len(updatedSession.Changes) + len(updatedSession.NodePoolChanges) + len(updatedSession.ResourceChanges),
+	}
+
+	// Coletar clusters afetados
+	clusterMap := make(map[string]bool)
+	namespaceMap := make(map[string]bool)
+
+	for _, change := range updatedSession.Changes {
+		clusterMap[change.Cluster] = true
+		namespaceMap[fmt.Sprintf("%s/%s", change.Cluster, change.Namespace)] = true
+	}
+
+	for _, change := range updatedSession.NodePoolChanges {
+		clusterMap[change.Cluster] = true
+	}
+
+	for cluster := range clusterMap {
+		updatedSession.Metadata.ClustersAffected = append(updatedSession.Metadata.ClustersAffected, cluster)
+	}
+	updatedSession.Metadata.NamespacesCount = len(namespaceMap)
+
+	// Salvar a sessão atualizada
+	err := h.sessionManager.SaveSessionToFolder(&updatedSession, sessionFolder)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "UPDATE_ERROR",
+				"message": fmt.Sprintf("Failed to update session: %v", err),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"message":      "Session updated successfully",
+			"session_name": updatedSession.Name,
 		},
 	})
 }

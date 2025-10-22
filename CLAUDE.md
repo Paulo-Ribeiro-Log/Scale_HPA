@@ -2000,6 +2000,205 @@ Usuário reportou: "não aparece nada para editar a sessão"
 
 ---
 
+## 🎨 FEATURE: EDITOR DE SESSÕES SALVAS (21 Outubro 2025)
+
+### Objetivo:
+Permitir edição completa do conteúdo de arquivos de sessão salvos, incluindo modificação de valores de HPAs e Node Pools salvos com valores incorretos.
+
+### Implementação Completa:
+
+**1. Frontend: EditSessionModal.tsx (NOVO - 480 linhas)**
+
+Componente completo de edição de sessões com:
+
+**Features:**
+- ✅ **Tabs para HPAs e Node Pools** - Organização por tipo de recurso
+- ✅ **Lista clicável** - Click para expandir/editar cada item
+- ✅ **Formulários completos**:
+  - HPAs: Min/Max Replicas, Target CPU/Memory, CPU/Memory Request/Limit
+  - Node Pools: Node Count, Autoscaling, Min/Max Node Count
+- ✅ **Remoção de itens** - Botão "Remover" para cada HPA/Node Pool
+- ✅ **Validação** - Tipos corretos (números inteiros para counts/replicas)
+- ✅ **Alert de aviso** - Mensagem destacando que modifica arquivo diretamente
+- ✅ **ScrollArea** - Suporte para muitos itens sem quebrar layout
+- ✅ **Deep copy** - Edição não afeta sessão original até salvar
+
+**Estrutura:**
+```typescript
+interface EditSessionModalProps {
+  session: Session | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: () => void;  // Callback para recarregar lista
+}
+
+// Estados principais
+const [editedSession, setEditedSession] = useState<Session | null>(null);
+const [selectedHPAIndex, setSelectedHPAIndex] = useState<number | null>(null);
+const [selectedNodePoolIndex, setSelectedNodePoolIndex] = useState<number | null>(null);
+
+// Métodos de atualização
+updateHPAChange(index, field, value)     // Atualiza campo de HPA
+updateNodePoolChange(index, field, value) // Atualiza campo de Node Pool
+deleteHPAChange(index)                    // Remove HPA da sessão
+deleteNodePoolChange(index)               // Remove Node Pool da sessão
+```
+
+**UI/UX:**
+- Click no card para expandir formulário inline
+- Card selecionado fica com borda azul (`border-blue-500 bg-blue-50`)
+- Badges mostrando cluster, namespace, resource group
+- Contadores nos tabs: `HPAs (3)`, `Node Pools (2)`
+- Mensagem quando lista vazia: "Nenhum HPA nesta sessão"
+
+**2. Backend: UpdateSession Handler (handlers/sessions.go)**
+
+```go
+func (h *SessionsHandler) UpdateSession(c *gin.Context) {
+    // 1. Validações (session manager, folder obrigatório)
+    // 2. Parse do JSON body para models.Session
+    // 3. Recalcular metadata (clusters, namespaces, contadores)
+    // 4. Salvar com SaveSessionToFolder()
+    // 5. Retornar sucesso
+}
+```
+
+**Características:**
+- ✅ **Folder obrigatório** - Evita ambiguidade sobre onde salvar
+- ✅ **Metadata auto-calculada** - Clusters afetados, contadores atualizados
+- ✅ **Reutiliza SaveSessionToFolder()** - Mesma lógica do TUI
+- ✅ **Validação completa** - Erros detalhados em JSON response
+
+**3. Rota API (server.go)**
+
+```go
+api.PUT("/sessions/:name", sessionHandler.UpdateSession)
+```
+
+Query parameters:
+- `name` (path) - Nome da sessão a atualizar
+- `folder` (query, obrigatório) - Pasta onde sessão está salva
+
+Body: JSON completo da sessão editada
+
+**4. Integração LoadSessionModal.tsx**
+
+```typescript
+// Estado adicional
+const [sessionToEdit, setSessionToEdit] = useState<Session | null>(null);
+
+// Novo item no dropdown menu
+<DropdownMenuItem onClick={() => setSessionToEdit(session)}>
+  <Edit2 className="h-4 w-4 mr-2" />
+  Editar Conteúdo
+</DropdownMenuItem>
+
+// Modal no final do componente
+<EditSessionModal
+  session={sessionToEdit}
+  open={!!sessionToEdit}
+  onOpenChange={(open) => !open && setSessionToEdit(null)}
+  onSave={() => {
+    loadSessions(); // Recarrega lista
+    setSessionToEdit(null);
+  }}
+/>
+```
+
+### Fluxo Completo de Uso:
+
+1. **Abrir Load Session Modal** - Usuário clica em botão "Load Session"
+2. **Selecionar pasta** - Escolhe pasta (HPA-Upscale, Node-Downscale, etc)
+3. **Click no menu dropdown (⋮)** - Três pontinhos ao lado da sessão
+4. **Selecionar "Editar Conteúdo"** - Abre EditSessionModal
+5. **Navegar entre tabs** - "HPAs" ou "Node Pools"
+6. **Click em um item** - Expande formulário de edição
+7. **Modificar valores**:
+   - HPAs: Min/Max replicas, targets, resources
+   - Node Pools: Node count, autoscaling, min/max
+8. **Remover itens** (opcional) - Botão "Remover HPA/Node Pool"
+9. **Salvar alterações** - Botão "Salvar Alterações"
+10. **API atualiza arquivo** - PUT `/api/v1/sessions/:name?folder=...`
+11. **Lista recarrega** - Sessão atualizada aparece na lista
+12. **Toast de sucesso** - "Sessão atualizada com sucesso"
+
+### Casos de Uso:
+
+**1. Corrigir valores de HPA salvos incorretamente:**
+```
+Problema: Salvou min_replicas = 10 mas deveria ser 1
+Solução: Editar sessão → Click no HPA → Alterar "Min Replicas" para 1 → Salvar
+```
+
+**2. Remover HPAs/Node Pools de uma sessão:**
+```
+Cenário: Sessão tem 5 HPAs mas só quer aplicar 3
+Solução: Editar sessão → Remover os 2 HPAs indesejados → Salvar
+```
+
+**3. Ajustar Node Pool counts para novo stress test:**
+```
+Cenário: Reutilizar sessão mas com node count diferente
+Solução: Editar sessão → Alterar "Node Count" → Salvar como nova referência
+```
+
+**4. Modificar autoscaling settings:**
+```
+Cenário: Node pool estava com autoscaling enabled mas deve ser manual
+Solução: Editar sessão → Desmarcar "Autoscaling Enabled" → Salvar
+```
+
+### Arquivos Criados/Modificados:
+
+**Novos:**
+- `internal/web/frontend/src/components/EditSessionModal.tsx` (480 linhas)
+
+**Modificados:**
+- `internal/web/handlers/sessions.go` - Handler UpdateSession (+100 linhas)
+- `internal/web/server.go` - Rota PUT /sessions/:name
+- `internal/web/frontend/src/components/LoadSessionModal.tsx` - Integração EditSessionModal
+
+### Validações Implementadas:
+
+**Frontend:**
+- ✅ Min Replicas >= 0
+- ✅ Max Replicas >= 1
+- ✅ Target CPU: 1-100 (opcional)
+- ✅ Target Memory: 1-100 (opcional)
+- ✅ Node Count >= 0
+- ✅ Min/Max Node Count se autoscaling habilitado
+
+**Backend:**
+- ✅ Folder obrigatório (erro se ausente)
+- ✅ JSON válido (binding com ShouldBindJSON)
+- ✅ Session manager inicializado
+- ✅ Metadata recalculada automaticamente
+
+### Próximas Melhorações (Futuro):
+
+**Nice to have:**
+- [ ] Preview de diff (before/after) antes de salvar
+- [ ] Validação de formato de resources (100m, 256Mi)
+- [ ] Duplicar sessão com valores editados
+- [ ] Histórico de edições (timestamps)
+- [ ] Undo/Redo dentro do editor
+- [ ] Adicionar novos HPAs/Node Pools (não só editar existentes)
+- [ ] Busca/filtro dentro da lista de HPAs
+
+### Testing Checklist:
+
+- [ ] Editar valores de HPA e salvar
+- [ ] Editar valores de Node Pool e salvar
+- [ ] Remover HPA de sessão
+- [ ] Remover Node Pool de sessão
+- [ ] Salvar sessão vazia (todos itens removidos)
+- [ ] Cancelar edição (não salvar mudanças)
+- [ ] Editar sessão, salvar, reabrir editor (valores corretos)
+- [ ] Hard refresh do browser após rebuild
+- [ ] Verificar arquivo JSON foi atualizado em `~/.k8s-hpa-manager/sessions/<pasta>/`
+
+---
+
 ## 🔄 HISTÓRICO DE CORREÇÕES CRÍTICAS (Outubro 2025)
 
 ### 1. **Tela Branca no NodePoolEditor** ✅
