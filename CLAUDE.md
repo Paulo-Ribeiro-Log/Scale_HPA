@@ -32,8 +32,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Estado Atual (Outubro 2025)
 
-**Versão Atual:** v1.2.0 (Release: 23 de outubro de 2025)
-**GitHub Release:** https://github.com/Paulo-Ribeiro-Log/Scale_HPA/releases/tag/v1.2.0
+**Versão Atual:** v1.2.1 (Release: 24 de outubro de 2025)
+**GitHub Release:** https://github.com/Paulo-Ribeiro-Log/Scale_HPA/releases/tag/v1.2.1
 
 **TUI (Terminal Interface):**
 - ✅ Interface responsiva (adapta-se ao tamanho real do terminal - mínimo 80x24)
@@ -60,6 +60,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ ApplyAllModal com progress tracking e rollout simulation
 - ✅ **Rollout individual para Prometheus Stack** (Deployment/StatefulSet/DaemonSet) - Outubro 2025
 - ✅ **Aplicar Agora para Node Pools** - Aplicação individual sem staging - Outubro 2025
+- ✅ **Campo de busca inteligente** - HPAs (nome/namespace) e Node Pools (nome/cluster) - v1.2.1
+- ✅ **Modal de edição inline** - Edição completa de HPAs no ApplyAllModal - v1.2.1
+- ✅ **Sistema de eventos** - Refetch sem reload para estabilidade - v1.2.1
 
 ### Tech Stack
 - **Language**: Go 1.23+ (toolchain 1.24.7)
@@ -1058,6 +1061,50 @@ k8s-hpa-manager autodiscover  # Auto-descobre clusters
 ---
 
 ## 📜 Histórico de Correções (Principais)
+
+### Campo de Busca e Edição Inline na Interface Web (Outubro 2025) ✅
+
+**Release:** v1.2.1 (publicada em 24 de outubro de 2025)
+**GitHub:** https://github.com/Paulo-Ribeiro-Log/Scale_HPA/releases/tag/v1.2.1
+
+**Features:** Campo de busca inteligente, edição inline de HPAs, e correções críticas de estabilidade.
+
+**Implementação:**
+- **Campo de Busca Inteligente**:
+  - Campo de busca no painel "Available HPAs" (busca por nome e namespace)
+  - Campo de busca no painel "Available Node Pools" (busca por nome e cluster)
+  - Interface consistente com ícone de lupa
+  - Busca case-insensitive em tempo real
+  - Feedback visual quando nenhum item é encontrado
+
+- **Modal de Edição Inline (ApplyAllModal)**:
+  - Edição completa de HPAs sem sair do modal de confirmação
+  - Dropdown menu (⋮) com opções "Editar Conteúdo" e "Remover da Lista"
+  - Validação de campos (Min/Max Replicas, Target CPU/Memory 1-100%)
+  - Suporte a edição de recursos (CPU/Memory Request/Limit)
+  - Checkboxes de rollout (Deployment, DaemonSet, StatefulSet)
+  - Atualização em staging após edição
+
+- **Correções de Bugs Críticos**:
+  - Remove `window.location.reload()` que causava restart da página
+  - Implementa sistema de eventos customizados (`rescanNodePools`)
+  - Adiciona listener no hook `useNodePools` para refetch automático
+  - Previne perda de dados durante operações de Node Pools
+  - Mantém estado e contexto durante operações longas
+
+**Arquivos modificados:**
+- `internal/web/frontend/src/pages/Index.tsx` (+129 linhas)
+- `internal/web/frontend/src/hooks/useAPI.ts` (+32 linhas)
+- `internal/web/frontend/src/components/ApplyAllModal.tsx` (+355 linhas)
+- `internal/web/static/` (rebuild frontend)
+
+**Benefícios:**
+- ✅ Produtividade aumentada com busca rápida (70+ HPAs/Node Pools)
+- ✅ Correção de erros sem interromper fluxo de trabalho
+- ✅ Estabilidade em operações longas (sem restart)
+- ✅ Experiência de usuário consistente e previsível
+
+---
 
 ### Sistema Completo de Instalação e Updates (Outubro 2025) ✅
 
