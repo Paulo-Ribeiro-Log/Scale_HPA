@@ -12,6 +12,7 @@ import { NodePoolEditor } from "@/components/NodePoolEditor";
 import { NodePoolApplyModal } from "@/components/NodePoolApplyModal";
 import { SaveSessionModal } from "@/components/SaveSessionModal";
 import { LoadSessionModal } from "@/components/LoadSessionModal";
+import { LogViewer } from "@/components/LogViewer";
 import { StagingPanel } from "@/components/StagingPanel";
 import { CronJobsPage } from "./CronJobsPage";
 import { PrometheusPage } from "./PrometheusPage";
@@ -51,6 +52,7 @@ const Index = ({ onLogout }: IndexProps) => {
   const [nodePoolsToApply, setNodePoolsToApply] = useState<Array<{ key: string; current: NodePool; original: NodePool }>>([]);
   const [showSaveSessionModal, setShowSaveSessionModal] = useState(false);
   const [showLoadSessionModal, setShowLoadSessionModal] = useState(false);
+  const [showLogViewer, setShowLogViewer] = useState(false);
   const [isContextSwitching, setIsContextSwitching] = useState(false);
 
   // Search filters
@@ -384,6 +386,7 @@ const Index = ({ onLogout }: IndexProps) => {
         }}
         onSaveSession={() => setShowSaveSessionModal(true)}
         onLoadSession={() => setShowLoadSessionModal(true)}
+        onViewLogs={() => setShowLogViewer(true)}
         userInfo="admin@k8s.local"
         onLogout={onLogout || (() => console.log("Logout"))}
       />
@@ -481,6 +484,12 @@ const Index = ({ onLogout }: IndexProps) => {
             setSelectedCluster(`${clusterName}-admin`); // Depois troca o cluster
           }
         }}
+      />
+
+      {/* Modal de Visualização de Logs */}
+      <LogViewer
+        open={showLogViewer}
+        onOpenChange={setShowLogViewer}
       />
     </div>
   );

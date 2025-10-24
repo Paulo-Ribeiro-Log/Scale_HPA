@@ -30,6 +30,7 @@ type Server struct {
 	heartbeatMutex sync.RWMutex
 	shutdownTimer  *time.Timer
 	timerMutex     sync.Mutex // Protege operações no timer
+	logBuffer      *handlers.LogBuffer
 }
 
 // NewServer cria uma nova instância do servidor web
@@ -55,12 +56,16 @@ func NewServer(kubeconfig string, port int, debug bool) (*Server, error) {
 	// gin.New() ao invés de gin.Default() para controle manual dos middlewares
 	router := gin.New()
 
+	// Criar buffer de logs (mantém últimos 1000 logs em memória)
+	logBuffer := handlers.NewLogBuffer(1000)
+
 	server := &Server{
 		router:        router,
 		kubeManager:   kubeManager,
 		port:          port,
 		token:         token,
 		lastHeartbeat: time.Now(),
+		logBuffer:     logBuffer,
 	}
 
 	server.setupMiddleware()
@@ -82,11 +87,45 @@ func (s *Server) setupMiddleware() {
 		AllowCredentials: true,
 	}))
 
-	// Logging
+	// Custom logging middleware que captura logs no buffer
+	s.router.Use(s.loggingMiddleware())
+
+	// Logging padrão do Gin (console)
 	s.router.Use(gin.Logger())
 
 	// Recovery
 	s.router.Use(gin.Recovery())
+}
+
+// loggingMiddleware captura logs de todas as requisições HTTP
+func (s *Server) loggingMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Timestamp de início
+		start := time.Now()
+		path := c.Request.URL.Path
+		method := c.Request.Method
+
+		// Processar requisição
+		c.Next()
+
+		// Calcular latência
+		latency := time.Since(start)
+		statusCode := c.Writer.Status()
+
+		// Criar entrada de log
+		logEntry := fmt.Sprintf("[%s] %s %s | Status: %d | Latency: %v",
+			start.Format("2006/01/02 15:04:05"),
+			method,
+			path,
+			statusCode,
+			latency,
+		)
+
+		// Adicionar ao buffer (skip health checks para não encher o log)
+		if path != "/health" && path != "/heartbeat" {
+			s.logBuffer.Add(logEntry)
+		}
+	}
 }
 
 // setupRoutes configura as rotas da API
@@ -200,6 +239,11 @@ func (s *Server) setupRoutes() {
 	api.DELETE("/sessions/:name", sessionHandler.DeleteSession)
 	api.PUT("/sessions/:name/rename", sessionHandler.RenameSession)
 	api.GET("/sessions/templates", sessionHandler.GetSessionTemplates)
+
+	// Logs
+	logsHandler := handlers.NewLogsHandler(s.logBuffer)
+	api.GET("/logs", logsHandler.GetLogs)
+	api.DELETE("/logs", logsHandler.ClearLogs)
 }
 
 // setupStatic configura servir arquivos estáticos
