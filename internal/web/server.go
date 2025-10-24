@@ -29,6 +29,7 @@ type Server struct {
 	lastHeartbeat  time.Time
 	heartbeatMutex sync.RWMutex
 	shutdownTimer  *time.Timer
+	timerMutex     sync.Mutex // Protege operações no timer
 }
 
 // NewServer cria uma nova instância do servidor web
@@ -101,15 +102,24 @@ func (s *Server) setupRoutes() {
 
 	// Heartbeat endpoint (sem auth) - frontend envia a cada 5 minutos
 	s.router.POST("/heartbeat", func(c *gin.Context) {
+		now := time.Now()
+
 		s.heartbeatMutex.Lock()
-		s.lastHeartbeat = time.Now()
+		s.lastHeartbeat = now
 		s.heartbeatMutex.Unlock()
 
-		// Resetar timer de shutdown
+		// Resetar timer de shutdown (thread-safe)
+		s.timerMutex.Lock()
 		if s.shutdownTimer != nil {
 			s.shutdownTimer.Stop()
 		}
 		s.shutdownTimer = time.AfterFunc(20*time.Minute, s.autoShutdown)
+		s.timerMutex.Unlock()
+
+		// Log para debugging
+		fmt.Printf("💓 Heartbeat recebido: %s | Próximo shutdown em: %s\n",
+			now.Format("15:04:05"),
+			now.Add(20*time.Minute).Format("15:04:05"))
 
 		c.JSON(200, gin.H{
 			"status":         "alive",
@@ -260,12 +270,16 @@ func (s *Server) setupStatic() {
 
 // startInactivityMonitor inicia o monitoramento de inatividade
 func (s *Server) startInactivityMonitor() {
-	// Timer inicial de 20 minutos
-	s.shutdownTimer = time.AfterFunc(20*time.Minute, s.autoShutdown)
+	// Timer inicial de 30 minutos (mais tempo que o normal para dar tempo do primeiro heartbeat)
+	// O primeiro heartbeat do frontend vai resetar para 20 minutos
+	s.timerMutex.Lock()
+	s.shutdownTimer = time.AfterFunc(30*time.Minute, s.autoShutdown)
+	s.timerMutex.Unlock()
 
 	fmt.Println("⏰ Monitor de inatividade ativado:")
 	fmt.Println("   - Frontend deve enviar heartbeat a cada 5 minutos")
 	fmt.Println("   - Servidor desligará após 20 minutos sem heartbeat")
+	fmt.Println("   - Timer inicial: 30 minutos (aguardando primeiro heartbeat)")
 }
 
 // autoShutdown desliga o servidor automaticamente por inatividade
