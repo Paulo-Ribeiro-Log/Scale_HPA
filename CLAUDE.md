@@ -439,11 +439,13 @@ make build-web                                # Build frontend + Go binary (embe
 
 **Problema resolvido:** Servidor web rodando em background consome recursos indefinidamente mesmo sem uso.
 
+**⚠️ CORREÇÃO CRÍTICA (Outubro 2025):** Dois bugs críticos foram corrigidos no sistema de heartbeat que causavam shutdown prematuro. Ver detalhes completos na seção [Histórico de Correções](#correção-crítica-sistema-de-heartbeatauto-shutdown-outubro-2025-).
+
 **Solução:**
 - **Frontend**: Hook `useHeartbeat` envia POST `/heartbeat` a cada 5 minutos
-- **Backend**: Reseta timer de 20 minutos ao receber heartbeat
+- **Backend**: Reseta timer de 20 minutos (ou 30min inicial) ao receber heartbeat
 - **Auto-shutdown**: Servidor desliga automaticamente se nenhuma página conectada por 20min
-- **Thread-safe**: `sync.RWMutex` protege timestamp de heartbeat
+- **Thread-safe**: `sync.RWMutex` protege timestamp de heartbeat + `sync.Mutex` protege timer (corrigido em Oct/2025)
 
 **Implementação:**
 
@@ -1061,6 +1063,52 @@ k8s-hpa-manager autodiscover  # Auto-descobre clusters
 ---
 
 ## 📜 Histórico de Correções (Principais)
+
+### Correção Crítica: Sistema de Heartbeat/Auto-Shutdown (Outubro 2025) ✅
+
+**Commit:** 7e38820 (24 de outubro de 2025)
+
+**Problema identificado:** Servidor web desligava prematuramente mesmo com heartbeats sendo enviados.
+
+**Bug 1: Race Condition no Timer**
+- **Problema:** O `shutdownTimer` não tinha proteção mutex, permitindo race conditions entre múltiplos heartbeats simultâneos ou durante o disparo do timer
+- **Solução:** Adicionado `timerMutex sync.Mutex` na struct Server para proteger todas as operações de Stop() e AfterFunc()
+- **Impacto:** Previne desligamentos inesperados durante operações concorrentes
+
+**Bug 2: Timer Inicial Prematuro**
+- **Problema:** Timer de 20 minutos começava a contar imediatamente quando servidor iniciava, NÃO quando frontend conectava
+- **Cenário que causava o bug:**
+  1. Servidor inicia às 14:15 (cria timer para 14:35)
+  2. Frontend envia primeiro heartbeat às 14:25 (cria novo timer para 14:45)
+  3. Heartbeats subsequentes em 14:30, 14:35...
+  4. **MAS**: Timer original das 14:35 ainda estava ativo e disparava!
+- **Solução:** Timer inicial aumentado para 30 minutos (tempo de graça), primeiro heartbeat do frontend reseta para 20 minutos normais
+- **Impacto:** Garante que servidor não desligue antes do frontend conectar
+
+**Melhorias de Logging:**
+```
+💓 Heartbeat recebido: 15:44:49 | Próximo shutdown em: 16:04:49
+```
+- Log detalhado em cada heartbeat mostrando timestamp recebido e próximo shutdown
+- Mensagem clara sobre timer inicial de 30 minutos
+- Facilita debugging e monitoramento do sistema
+
+**Testes realizados:**
+- ✅ Múltiplos heartbeats recebidos e processados corretamente
+- ✅ Timer resetado a cada heartbeat (verificado via logs)
+- ✅ Servidor permanece ativo com página aberta
+- ✅ Múltiplas abas abertas simultaneamente (cada uma envia heartbeat)
+
+**Arquivos modificados:**
+- `internal/web/server.go` (+18 linhas, -4 linhas)
+  - Adicionado `timerMutex sync.Mutex`
+  - Protegido todas as operações no timer com mutex
+  - Timer inicial aumentado de 20min → 30min
+  - Log detalhado em cada heartbeat
+
+**Impacto:** Sistema de auto-shutdown agora funciona corretamente sem desligar prematuramente.
+
+---
 
 ### Campo de Busca e Edição Inline na Interface Web (Outubro 2025) ✅
 
