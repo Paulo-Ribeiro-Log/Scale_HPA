@@ -63,6 +63,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ **Campo de busca inteligente** - HPAs (nome/namespace) e Node Pools (nome/cluster) - v1.2.1
 - ✅ **Modal de edição inline** - Edição completa de HPAs no ApplyAllModal - v1.2.1
 - ✅ **Sistema de eventos** - Refetch sem reload para estabilidade - v1.2.1
+- ✅ **Sistema de Log Viewer** - Modal com captura em tempo real, auto-refresh, exportar CSV - v1.2.1
 
 ### Tech Stack
 - **Language**: Go 1.23+ (toolchain 1.24.7)
@@ -495,6 +496,7 @@ func (s *Server) handleHeartbeat(c *gin.Context) {
 | **Dashboard** | ✅ 100% | Grid 2x2 com métricas reais (CPU/Memory allocation) |
 | **Snapshot Cluster** | ✅ 100% | Captura estado atual para rollback |
 | **Heartbeat System** | ✅ 100% | Auto-shutdown em 20min inatividade |
+| **Log Viewer** | ✅ 100% | Modal com logs em tempo real (app + servidor), auto-refresh, copiar, exportar CSV, limpar |
 
 ### Workflow Session Management (Web)
 
@@ -568,6 +570,8 @@ func (s *Server) handleHeartbeat(c *gin.Context) {
 | `/cronjobs?cluster=X&namespace=Y` | GET | Lista CronJobs |
 | `/prometheus?cluster=X` | GET | Lista recursos Prometheus |
 | `/prometheus/:cluster/:namespace/:type/:name/rollout` | POST | **Rollout de recurso Prometheus (deployment/statefulset/daemonset)** |
+| `/logs` | GET | Retorna logs da aplicação e servidor (buffer + arquivos) |
+| `/logs` | DELETE | Limpa buffer de logs da aplicação |
 | `/heartbeat` | POST | Heartbeat (mantém servidor vivo) |
 
 ---
@@ -1063,6 +1067,77 @@ k8s-hpa-manager autodiscover  # Auto-descobre clusters
 ---
 
 ## 📜 Histórico de Correções (Principais)
+
+### Sistema de Log Viewer para Interface Web (Outubro 2025) ✅
+
+**Feature:** Sistema completo de visualização de logs com captura em tempo real, auto-refresh, exportação CSV e limpeza.
+
+**Implementação:**
+- **Backend** (`internal/web/handlers/logs.go`):
+  - `LogBuffer` - Buffer circular thread-safe (RWMutex) com 1000 logs em memória
+  - `LogsHandler` - Handler com métodos `GetLogs()` e `ClearLogs()`
+  - Múltiplas fontes de logs:
+    - Buffer em memória (logs da aplicação)
+    - Arquivos de log (`/tmp/k8s-hpa-manager-web-*.log`)
+    - Sistema (journalctl - opcional, comentado)
+
+- **Middleware de Logging** (`internal/web/server.go`):
+  - `loggingMiddleware()` - Captura TODAS as requisições HTTP
+  - Formato: `[timestamp] METHOD path | Status: XXX | Latency: XXXms`
+  - Filtro inteligente: Ignora `/health` e `/heartbeat` para não poluir logs
+  - Thread-safe com acesso protegido ao buffer
+
+- **Frontend** (`internal/web/frontend/src/components/LogViewer.tsx`):
+  - Modal responsivo (max-w-6xl, h-85vh)
+  - **Auto-refresh** - Toggle on/off, atualiza a cada 3 segundos
+  - **Copiar** - Copia logs para clipboard
+  - **Exportar CSV** - Parsing inteligente de logs estruturados
+  - **Limpar** - Limpa buffer com confirmação
+  - **Estatísticas** - Badges de total/errors/warnings/info
+
+- **Integração no Header** (`internal/web/frontend/src/components/Header.tsx`):
+  - Botão discreto com ícone 📄 (FileText)
+  - Tooltip "View System Logs"
+
+**API Routes:**
+- `GET /api/v1/logs` - Buscar logs (buffer + arquivos)
+- `DELETE /api/v1/logs` - Limpar buffer
+
+**Workflow:**
+1. Usuário clica no ícone 📄 no header
+2. Modal abre com logs divididos por fonte:
+   - **Application Logs (In-Memory)** - Requisições HTTP capturadas
+   - **Web Server Logs** - Logs do arquivo do servidor
+3. Auto-refresh mantém logs atualizados automaticamente
+4. Exportar CSV para análise offline
+5. Limpar buffer quando necessário
+
+**Testes realizados:**
+- ✅ Captura de requisições HTTP em tempo real
+- ✅ Auto-refresh funcionando (3s)
+- ✅ Copiar para clipboard
+- ✅ Exportar CSV com parsing correto
+- ✅ Limpar buffer com confirmação
+- ✅ Estatísticas de logs (total, errors, warnings)
+- ✅ Thread-safe (RWMutex)
+
+**Arquivos criados:**
+- `internal/web/handlers/logs.go` (NOVO)
+- `internal/web/frontend/src/components/LogViewer.tsx` (NOVO)
+
+**Arquivos modificados:**
+- `internal/web/server.go` - Middleware + rotas de logs
+- `internal/web/frontend/src/components/Header.tsx` - Botão de logs
+- `internal/web/frontend/src/pages/Index.tsx` - Integração do modal
+
+**Benefícios:**
+- ✅ Debugging facilitado com logs em tempo real
+- ✅ Investigação de erros sem acesso ao servidor
+- ✅ Exportação para análise offline (CSV)
+- ✅ Auto-refresh elimina necessidade de recarregar manualmente
+- ✅ Filtros inteligentes (ignora health/heartbeat)
+
+---
 
 ### Correção Crítica: Sistema de Heartbeat/Auto-Shutdown (Outubro 2025) ✅
 
