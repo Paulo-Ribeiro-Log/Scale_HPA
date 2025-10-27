@@ -1068,6 +1068,48 @@ k8s-hpa-manager autodiscover  # Auto-descobre clusters
 
 ## 📜 Histórico de Correções (Principais)
 
+### Correção de Cross-Compilation para Windows/macOS (Outubro 2025) ✅
+
+**Commit:** b84461c (27 de outubro de 2025)
+
+**Problema identificado:** Build multi-plataforma falhava durante `make release` com erro de compilação.
+
+**Erro:**
+```
+Error: cmd/root.go:239:59: undefined: unix.TCGETS
+```
+
+**Causa:**
+- Função `isatty()` não utilizada no código usava `unix.IoctlGetTermios()` e `unix.TCGETS`
+- `golang.org/x/sys/unix` é específico do Linux/Unix
+- Cross-compilation para Windows e macOS falhava no GitHub Actions
+
+**Solução:**
+- ❌ Removido import `golang.org/x/sys/unix`
+- ❌ Removida função `isatty()` não utilizada (código morto)
+- ✅ Código agora é cross-platform compatível
+
+**Nota técnica:** O projeto já possui `github.com/mattn/go-isatty` como dependência (via Gin framework), que é cross-platform. Se precisar verificar TTY no futuro, usar essa biblioteca ao invés de `unix.IoctlGetTermios()`.
+
+**Testes realizados:**
+- ✅ `make release` compila para todas as plataformas:
+  - Linux amd64:        82M ✓
+  - macOS amd64 (Intel): 82M ✓
+  - macOS arm64 (Apple): 80M ✓
+  - Windows amd64:       82M ✓
+
+**Arquivos modificados:**
+- `cmd/root.go` (-7 linhas)
+  - Removido import `golang.org/x/sys/unix`
+  - Removida função `isatty()` (linhas 237-241)
+
+**Impacto:**
+- ✅ GitHub Actions CI/CD agora compila binários para todas as plataformas
+- ✅ Releases automatizadas funcionando corretamente
+- ✅ Sem perda de funcionalidade (código removido não era usado)
+
+---
+
 ### Sistema de Log Viewer para Interface Web (Outubro 2025) ✅
 
 **Feature:** Sistema completo de visualização de logs com captura em tempo real, auto-refresh, exportação CSV e limpeza.
