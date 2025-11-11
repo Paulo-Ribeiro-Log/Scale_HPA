@@ -1122,6 +1122,70 @@ k8s-hpa-manager autodiscover  # Auto-descobre clusters
 
 ## 📜 Histórico de Correções (Principais)
 
+### Correção Crítica: SQLite Timestamp Type Mismatch (Novembro 2025) ✅
+
+**Data:** 11 de novembro de 2025
+
+**Problema identificado:** Dashboard de monitoramento não exibia dados mesmo com 8.658 snapshots salvos no banco SQLite. Mensagem "Sem dados disponíveis" aparecia na interface web.
+
+**Root Cause:**
+- SQLite armazena timestamps como **INTEGER** (Unix timestamps em int64)
+- Funções `LoadSnapshots()` e `LoadSnapshotsYesterday()` passavam objetos `time.Time` do Go diretamente nas queries
+- Comparação SQL falhava silenciosamente (INTEGER vs time.Time type mismatch)
+- Resultado: API retornava array vazio mesmo com dados no banco
+
+**Solução KISS aplicada:**
+
+**1️⃣ LoadSnapshots** (`persistence.go:498`):
+```go
+// ANTES (ERRADO)
+`, cluster, namespace, name, since)
+
+// DEPOIS (CORRETO)
+`, cluster, namespace, name, since.Unix())
+```
+
+**2️⃣ LoadSnapshotsYesterday** (`persistence.go:606`):
+```go
+// ANTES (ERRADO)
+`, cluster, namespace, name, yesterdayStart, yesterdayEnd)
+
+// DEPOIS (CORRETO)
+`, cluster, namespace, name, yesterdayStart.Unix(), yesterdayEnd.Unix())
+```
+
+**Resultado dos testes:**
+```bash
+# ANTES (QUEBRADO):
+curl '/api/v1/monitoring/metrics/.../...?duration=72h'
+→ {"count": 0, "snapshots": []}
+
+# DEPOIS (FUNCIONANDO):
+curl '/api/v1/monitoring/metrics/.../...?duration=72h'
+→ {
+  "count": 8658,
+  "first_timestamp": "2025-11-08T13:26:41Z",
+  "last_timestamp": "2025-11-11T13:24:43Z",
+  "sample_min_replicas": 3,
+  "sample_max_replicas": 50
+}
+```
+
+**Arquivos modificados:**
+- `internal/monitoring/storage/persistence.go` (linhas 498, 606)
+
+**Benefícios:**
+- ✅ Dados agora exibidos corretamente na interface web
+- ✅ Min/Max Replicas aparecem nos gráficos (valores: 3 e 50)
+- ✅ Solução KISS: 2 linhas de código (uma em cada função)
+- ✅ 72 horas de histórico disponíveis para análise
+
+**Lição aprendida:**
+- `time.Time` não é compatível com SQLite INTEGER timestamps
+- Sempre usar `.Unix()` para converter para int64 antes de passar para queries SQL
+
+---
+
 ### Nova Arquitetura: SimpleCollector (Novembro 2025) ✅
 
 **Data:** 08 de novembro de 2025

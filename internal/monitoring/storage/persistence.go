@@ -443,7 +443,7 @@ func (p *Persistence) SaveSnapshots(snapshots []*models.HPASnapshot) error {
 			snapshot.Cluster,
 			snapshot.Namespace,
 			snapshot.Name,
-			snapshot.Timestamp,
+			snapshot.Timestamp.Unix(),  // Converter para Unix timestamp (int64)
 			snapshot.CPUCurrent,
 			snapshot.CPUTarget,
 			snapshot.MemoryCurrent,
@@ -495,7 +495,7 @@ func (p *Persistence) LoadSnapshots(cluster, namespace, name string, since time.
 		WHERE cluster = ? AND namespace = ? AND hpa_name = ?
 		  AND timestamp >= ?
 		ORDER BY timestamp ASC
-	`, cluster, namespace, name, since)
+	`, cluster, namespace, name, since.Unix())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query snapshots: %w", err)
 	}
@@ -603,7 +603,7 @@ func (p *Persistence) LoadSnapshotsYesterday(cluster, namespace, name string, du
 		WHERE cluster = ? AND namespace = ? AND hpa_name = ?
 		  AND timestamp >= ? AND timestamp <= ?
 		ORDER BY timestamp ASC
-	`, cluster, namespace, name, yesterdayStart, yesterdayEnd)
+	`, cluster, namespace, name, yesterdayStart.Unix(), yesterdayEnd.Unix())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query yesterday snapshots: %w", err)
 	}
